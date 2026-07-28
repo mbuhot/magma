@@ -234,6 +234,49 @@ defmodule Magma.Test.Workflows do
     return(:after_compose)
   end
 
+  defmodule Rail do
+    @moduledoc false
+    use Reactor
+
+    input(:transfer_id)
+
+    step :send, {Effect, name: :rail_send} do
+      argument(:transfer_id, input(:transfer_id))
+    end
+
+    return(:send)
+  end
+
+  defmodule Spine do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:transfer_id)
+    input(:currency)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:transfer_id, input(:transfer_id))
+    end
+
+    step :rail, {Magma.Step.Dispatch, workflow: &Magma.Test.Workflows.rail_for/2, block_ms: 50} do
+      argument(:transfer_id, input(:transfer_id))
+      argument(:currency, input(:currency))
+      wait_for(:quote)
+    end
+
+    step :reconcile, {Effect, name: :reconcile} do
+      argument(:rail, result(:rail))
+    end
+
+    return(:reconcile)
+  end
+
+  @doc "Which rail serves a currency, read at run time. The spine names no rail itself."
+  def rail_for(%{currency: currency}, _context) do
+    Application.get_env(:magma, :test_rails, %{})
+    |> Map.fetch!(currency)
+  end
+
   defmodule Parallel do
     @moduledoc false
     use Reactor

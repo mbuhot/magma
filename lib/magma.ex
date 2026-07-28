@@ -40,6 +40,10 @@ defmodule Magma do
   @spec cancel(String.t()) :: {:ok, Ash.Resource.record()} | {:error, term()}
   defdelegate cancel(workflow_id), to: Magma.Api
 
+  @doc "A stable id for a child a step dispatches, derived from its parent and the step."
+  @spec child_id(String.t(), term()) :: String.t()
+  defdelegate child_id(parent_workflow_id, step_name), to: Magma.Key, as: :child_id
+
   @doc "What the store last recorded for a workflow."
   @spec fetch(String.t()) :: {:ok, Ash.Resource.record() | nil} | {:error, term()}
   defdelegate fetch(workflow_id), to: Magma.Store, as: :get_workflow

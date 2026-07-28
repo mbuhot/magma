@@ -47,7 +47,8 @@ defmodule Magma.Worker do
   end
 
   defp outcome({:ok, result}, workflow) do
-    {:ok, _completed} = Store.update_workflow(workflow, :complete, %{result: result})
+    {:ok, completed} = Store.update_workflow(workflow, :complete, %{result: result})
+    :ok = Magma.Api.report_to_parent(completed, {:ok, result})
     :ok
   end
 
@@ -66,7 +67,8 @@ defmodule Magma.Worker do
 
   defp outcome({:error, error}, workflow) do
     {:ok, current} = Store.get_workflow(workflow.id)
-    {:ok, _failed} = Store.update_workflow(current, :fail, %{error: error})
+    {:ok, failed} = Store.update_workflow(current, :fail, %{error: error})
+    :ok = Magma.Api.report_to_parent(failed, {:error, error})
     {:cancel, error}
   end
 

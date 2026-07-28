@@ -25,6 +25,8 @@ defmodule Magma.Resource.Workflow.Transformer do
       public?: true,
       default: :pending
     )
+    |> Builder.add_new_attribute(:parent_workflow_id, :uuid_v7, public?: true)
+    |> Builder.add_new_attribute(:parent_signal, :string, public?: true)
     |> Builder.add_new_attribute(:result, Term, public?: true)
     |> Builder.add_new_attribute(:error, Term, public?: true)
     |> Builder.add_new_create_timestamp(:inserted_at, public?: true)
@@ -32,7 +34,7 @@ defmodule Magma.Resource.Workflow.Transformer do
     |> Builder.add_new_action(:read, :read, primary?: true)
     |> Builder.add_new_action(:create, :start,
       primary?: true,
-      accept: [:id, :module, :inputs, :actor, :tenant]
+      accept: [:id, :module, :inputs, :actor, :tenant, :parent_workflow_id, :parent_signal]
     )
     |> Builder.add_new_action(:update, :set_status, accept: [:status], require_atomic?: false)
     |> Builder.add_new_action(:update, :complete,

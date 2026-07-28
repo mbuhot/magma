@@ -5,17 +5,37 @@ defmodule Magma.Api do
   alias Magma.Worker
 
   def start(module, inputs, options) do
-    attrs = %{
-      module: module,
-      inputs: inputs,
-      actor: options[:actor],
-      tenant: options[:tenant]
-    }
+    attrs =
+      %{
+        module: module,
+        inputs: inputs,
+        actor: options[:actor],
+        tenant: options[:tenant]
+      }
+      |> put_if(:id, options[:workflow_id])
+      |> put_parent(options[:parent])
 
     with {:ok, workflow} <- Store.start_workflow(attrs),
          {:ok, _job} <- enqueue(workflow, options) do
       {:ok, workflow}
     end
+  end
+
+  defp put_if(attrs, _key, nil), do: attrs
+  defp put_if(attrs, key, value), do: Map.put(attrs, key, value)
+
+  defp put_parent(attrs, nil), do: attrs
+
+  defp put_parent(attrs, {parent_id, signal}) do
+    Map.merge(attrs, %{parent_workflow_id: parent_id, parent_signal: signal})
+  end
+
+  @doc "Tells a workflow's parent how it ended, if it has one."
+  def report_to_parent(%{parent_workflow_id: nil}, _outcome), do: :ok
+
+  def report_to_parent(%{parent_workflow_id: parent_id, parent_signal: signal}, outcome) do
+    {:ok, _signal} = signal(parent_id, signal, outcome)
+    :ok
   end
 
   def signal(workflow_id, name, payload) do

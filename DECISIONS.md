@@ -287,3 +287,23 @@ has already ended.
 **Why:** this is [11](#11-a-crash-retries-an-error-unwinds) in practice. Oban's `max_attempts`
 covers process death alone. A step wanting another go asks Reactor for it with `:retry`,
 which is where the retry policy belongs.
+
+---
+
+## 20. A child workflow is adopted by a derived id
+
+`Magma.Step.Dispatch` runs another workflow as a durable child — its own row, its own Oban
+job, its own queue — and waits for its result. The child's id comes from
+`Magma.Key.child_id/2`, a digest of the parent's id and the dispatching step's name.
+
+**Why:** the id has to be stable so a replay finds the child already running rather than
+starting a second one. Everything else can move, which is the point: the *module* is resolved
+at run time, from config or from an argument, while identity stays fixed. A spine can route
+to a rail it does not name.
+
+**How the result comes back:** the child records its parent and the signal to answer on. The
+worker signals that parent when the child ends, either way, so the parent's wait is answered
+by the same mechanism a webhook uses. A child that fails fails its parent.
+
+**Costs:** a workflow row is a UUIDv7, so the digest sets the version and variant bits to
+stay a well-formed one.
