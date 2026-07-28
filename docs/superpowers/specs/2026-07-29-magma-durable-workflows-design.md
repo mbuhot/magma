@@ -391,6 +391,7 @@ concurrency are sized together.
 | halted on `await` | `:ok` — the job completes and holds nothing | `waiting` |
 | halted on `poll` | `{:snooze, n}` | `polling` |
 | *(the process died)* | a retry on Oban backoff | `pending`, replays |
+| *(attempts exhausted)* | `discarded` | `pending`, awaiting an operator |
 | `{:error, e}` past `max_retries` | `{:cancel, e}` | `failed`, unwound |
 
 **A crash retries. An error unwinds.** Reactor already draws that line: `:retry` and
@@ -438,9 +439,25 @@ fails; B and A undo for the first time. This walk is the reason replay returns t
 impl.
 
 **A crash during the unwind.** B's undo commits its mark, then the process dies before A's
-runs. A crash is a retry, so the next attempt replays — and B, marked undone, is absent
-from the replay map, so **B runs again**, fails at C again, and both undo. B's effect is
-redone and taken back rather than left half-way: at-least-once, applied to undo.
+runs.
+
+There is no way to load a reactor and drop it straight into a rollback: `Reactor.run/4`
+accepts `:pending` and `:halted`, so a half-finished unwind has no entry point. Magma
+resumes **the workflow**. A crash is a retry, the replay map omits B because it is marked
+undone, so B runs again and execution reaches C for a second time. Both answers land
+somewhere consistent:
+
+| C on the retry | Result |
+|---|---|
+| fails again | B and A both undo, and the workflow ends `failed` with everything taken back |
+| succeeds | A stands from its checkpoint, B is done → undone → done, C completes, and the workflow succeeds |
+
+So this walk turns on replay alone. The unwind is redriven when the workflow earns one,
+and the earlier partial rollback is repaired by the redo either way.
+
+What it costs is a window: between the crash and the next attempt, B is taken back while A
+stands. Closing that window needs a rollback that checkpoints its own progress, which is
+[where unwinding stops](#where-unwinding-stops).
 
 **A step that cannot be undone.** A step without `undo/4` never joins the stack and is
 never taken back. Its effect stands and the workflow ends `failed`. This is where a
@@ -462,10 +479,18 @@ engine.
 
 ### Where unwinding stops
 
-An unwind lives inside one attempt. A crash part way through restarts it by replay, which
-costs the redo in the third walk above. Checkpointing each undo so a rollback resumes
-where it stopped is the shape of a separate compensation workflow, and it stays outside
-this design.
+An unwind lives inside one attempt. A crash part way through is repaired by replay, at the
+cost of the redo and the window in the third walk above.
+
+Closing that window means a rollback that checkpoints its own progress and can be picked
+up where it stopped — a compensation workflow in its own right, with its own row, its own
+job and its own replay. That is a second engine, and it stays outside this design. A
+workflow whose steps must never be redone during recovery is served instead by leaving
+`undo/4` off them, which parks the work and alerts.
+
+Oban attempts are finite. A crash that repeats until they are exhausted leaves the job
+`discarded` and the workflow `pending` with a partial rollback standing, which is an
+operator's problem by design rather than something to retry forever.
 
 ## Resources
 
@@ -535,7 +560,7 @@ suite is built to prove it.
 | Concurrency | A workflow with parallel branches killed after one branch checkpoints, asserting the recorded branch replays and the other resumes. Plus checkpoints written from several Task processes at once. |
 | Await races | A signal during the block window, before the await is reached, and after the halt. |
 | Unwinding | Undo marks its checkpoint, and the replay after it re-runs the step. |
-| Crash mid-unwind | A process killed between two undos, asserting the next attempt redoes the marked step and takes both back. |
+| Crash mid-unwind | A process killed between two undos, in both directions: the retry fails again and takes everything back, and the retry succeeds and the workflow completes with the redone step standing. |
 | Cancelling a wait | A `waiting` workflow cancelled, asserting every recorded step is undone and the workflow ends `cancelled`. |
 | Undo after replay | A run that replays step A from a checkpoint and then fails at step B, asserting A's undo ran. This is what pins replay to the impl path, since a guard-skipped step never reaches the undo stack. |
 | Guard neutralisation | A `where` that answers differently on the second attempt, asserting a completed step stays completed and a skipped step stays skipped. |
