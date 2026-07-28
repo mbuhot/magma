@@ -229,3 +229,59 @@ and that `around` and `group` children needed resolving during a rollback.
 
 A failed undo is collected and its checkpoint keeps standing, so what is still out there is
 on the record.
+
+---
+
+## 15. Roles are read off the resources, so the domain declares nothing
+
+`Magma.Store.resource/2` finds which resource plays which role by checking
+`Spark.extensions/1` on each resource in the configured domain.
+
+**Why:** the domain needed no extension of its own, which drops a module from the library and
+a line from setup, and lets an application put magma's resources in a domain it already has.
+
+**Supersedes:** the `Magma.Domain` extension the design called for.
+
+---
+
+## 16. The tape orders by primary key
+
+`Checkpoint` has no `sequence` column. Its `id` is a UUIDv7, which embeds its timestamp.
+
+**Why:** a bigserial would need a hand-edited migration. Ordering by `id` is correct for the
+rollback too: a dependent step completes strictly after the one it reads, so a tie in the
+same millisecond can only fall between independent steps, whose relative undo order does not
+matter.
+
+---
+
+## 17. Waking a blocked wait rides on Oban's notifier
+
+`Magma.Notifier` sends to a local `Registry` and publishes on `Oban.Notifier`.
+
+**Why:** magma takes no pubsub dependency, and the reach is already cluster-wide. A missed
+message costs nothing — the step re-checks the store before halting, and a halted workflow is
+brought back by the resume job rather than by the broadcast.
+
+---
+
+## 18. `await` and `poll` are steps, not entities yet
+
+Both are written as a plain `step` over `Magma.Step.Await` or `Magma.Step.Poll`.
+
+**Why:** a custom Reactor entity needs its own target struct and a `Reactor.Dsl.Build`
+implementation, since `Reactor.Dsl.Step` has no fields for `signal`, `block_ms` or
+`on_timeout`. The step form has the whole behaviour and no new syntax to learn.
+
+**Costs:** the DSL sugar the design showed is still to come.
+
+---
+
+## 19. An error ends the run, and only a crash brings it back
+
+The worker returns `{:cancel, error}` on `{:error, ...}` and refuses to run a workflow that
+has already ended.
+
+**Why:** this is [11](#11-a-crash-retries-an-error-unwinds) in practice. Oban's `max_attempts`
+covers process death alone. A step wanting another go asks Reactor for it with `:retry`,
+which is where the retry policy belongs.
