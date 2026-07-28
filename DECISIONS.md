@@ -198,9 +198,34 @@ keeps owning compensation and undo inside a live run.
 
 ---
 
-## 13. Two things stay outside
+## 13. Composite steps divide on where their children run
 
-- **A rollback of a rollback.** A failed undo is collected and its checkpoint keeps
-  standing, so what is still out there is on the record.
-- **`around` and `group` children.** Both plan by calling user functions that may act, so
-  `Magma.Unwind` leaves their generated children unresolved and reports them.
+Reactor's composites split on one question, and magma treats the halves differently.
+
+| Shape | Steps | Mechanism | Checkpoints |
+|---|---|---|---|
+| Inlining | `map`, `switch` | return `{:ok, value, steps}` into the outer plan | one per generated child; the parent holds none and re-plans |
+| Nesting | `group`, `around`, `recurse`, `compose` | build a private reactor and call `Reactor.run/4` inline | one, for the composite as a whole |
+
+**Why:** an inlining parent's children join the outer plan, so the wrapper decorates them on
+the way out and each carries its own row. A nesting composite's children never reach the
+outer plan and cannot be decorated, so the composite is a single step with a single
+checkpoint.
+
+**Costs:** a nesting composite re-runs its children together after a crash, and unwinds them
+only within its own nested run. Effectful work needing its own checkpoint belongs in the
+outer reactor or under a `map` or `switch`.
+
+**Rejected:** `compose` with `support_undo?: true`. Its recorded value is `%{reactor:
+reactor}` — a live `%Reactor{}` holding refs, closures and a Multigraph plan — because its
+`undo/4` calls `Reactor.undo/2` on it. Decoration fails naming the step and the option.
+
+**Supersedes:** an earlier entry claiming all six composites return `{:ok, value, steps}`,
+and that `around` and `group` children needed resolving during a rollback.
+
+---
+
+## 14. A rollback of a rollback stays outside
+
+A failed undo is collected and its checkpoint keeps standing, so what is still out there is
+on the record.

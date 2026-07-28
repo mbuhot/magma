@@ -250,15 +250,41 @@ and telemetry. Its `event/3` returns `:ok` and can only observe, which is why th
 checkpoint write lives in the impl where a failure can fail the step. A lost skip record
 costs one re-evaluation of a guard.
 
-### Composite steps re-plan
+### Composite steps come in two shapes
 
-`map`, `switch`, `group`, `around`, `compose` and `recurse` return `{:ok, value, steps}`.
-Those generated steps hold iterators and closures, which puts them outside what
-`term_to_binary` can carry.
+Reactor's composites divide on one question: do their children join the outer plan, or run
+in a Reactor of their own?
 
-**A step that returns new steps is a planning step and holds no checkpoint.** It re-runs
-on replay, re-plans identically, and its generated children carry the checkpoints. The
-split between a body that re-executes and steps that do not lands on Reactor's own seam.
+**Inlining — `map` and `switch`.** They return `{:ok, value, steps}`, and the generated
+steps enter the outer plan. The wrapper decorates them on the way out, so each child
+carries its own checkpoint under a generated name.
+
+The parent holds no checkpoint. It is a planning step: it re-runs on replay, re-plans
+identically, and its children replay from their own rows. That keeps iterators and closures
+out of the store, and lands the split between a body that re-executes and steps that do not
+on Reactor's own seam.
+
+**Nesting — `group`, `around`, `recurse`, and `compose`.** They build a private reactor and
+call `Reactor.run/4` on it inline. Their children never enter the outer plan, are never
+decorated, and hold no checkpoints.
+
+So a nesting composite is **one step and one checkpoint**. Its inner steps re-run together
+on replay, and they unwind only within their own nested run. Effectful work that needs its
+own checkpoint belongs in the outer reactor, or under a `map` or `switch`.
+
+### `compose` with `support_undo?: true`
+
+This combination has no checkpoint magma can write, and decoration rejects it by name.
+
+Asked to support undo, `compose` returns a `{:compose, name}` step whose recorded value is
+`%{reactor: reactor}` — a live `%Reactor{}` — because its `undo/4` calls
+`Reactor.undo(reactor, context)` on it. That struct carries `make_ref/0` references, step
+impls holding closures, and a Multigraph plan. Round-tripping it through `term_to_binary`
+yields a value whose undo would be handed a corpse.
+
+Failing at decoration names the step and the option. Alternatives are a nested reactor
+composed without undo support, or the steps lifted into the outer reactor where each one
+checkpoints.
 
 ## Concurrency and ordering
 
@@ -474,14 +500,15 @@ moved money belongs, parked and alerted.
 ### Resolving a step from a checkpoint
 
 `undo/4` needs a `%Step{}`. Declared steps and their `nested_steps/1` come straight off the
-built reactor. A checkpoint belonging to a child generated at run time — a `map` element, a
-`switch` branch — is materialised by driving its composite parent, whose own arguments
-resolve from the same checkpoint map. Planning is pure for `map`, `switch`, `compose` and
-`recurse`, so driving them takes nothing back and does nothing new.
+built reactor.
 
-`around` and `group` plan by calling user functions that may act. Their generated children
-stay unresolved and are reported on the workflow, which [open questions](#open-questions)
-carries.
+A checkpoint belonging to a child generated at run time — a `map` element, a `switch`
+branch — is materialised by driving its inlining parent, whose own arguments resolve from
+the same checkpoint map. Both plan by reading their source and returning steps, so driving
+them takes nothing back and does nothing new.
+
+A nesting composite needs none of this. It is one step in the outer plan and its own `undo`
+is the only one there is to call.
 
 ### Two rollback paths
 
@@ -578,13 +605,15 @@ suite is built to prove it.
 |---|---|
 | Crash recovery | An ETS side-effect counter, a worker killed mid-run, `Oban.drain_queue`, and an assertion that each effectful step ran once. One case per phase boundary. |
 | Checkpoint tapes | Pin the exact sequence a workflow produces, so an edit that adds, drops or reorders a step announces itself. |
-| Generated names | Stability across `map`, `switch`, `compose`, `recurse`, `group`, `around` — the contract's most dynamic surface. |
+| Generated names | Stability across `map` and `switch` — the contract's most dynamic surface. |
+| Nesting composites | A `group`, `around`, `recurse` and `compose` each checkpointing once, asserting a crash inside re-runs their children together and a later failure calls only the composite's own undo. |
+| Rejected combinations | `compose` with `support_undo?: true`, asserting decoration fails naming the step and the option. |
 | Concurrency | A workflow with parallel branches killed after one branch checkpoints, asserting the recorded branch replays and the other resumes. Plus checkpoints written from several Task processes at once. |
 | Await races | A signal during the block window, before the await is reached, and after the halt. |
 | Unwinding | Undo marks its checkpoint, and the replay after it re-runs the step. |
 | Crash mid-unwind | A process killed between two undos, asserting the next attempt takes back what still stands, calls no undo twice, re-runs nothing, and never reaches the step that failed. |
 | Rollback completeness | A workflow with parallel branches crashed mid-unwind, asserting every standing checkpoint is undone — the case replay-driven unwinding could not guarantee. |
-| Step resolution | Undoing a `map` element and a `switch` branch from checkpoints alone, asserting the composite parent materialises them without repeating work. |
+| Step resolution | Undoing a `map` element and a `switch` branch from checkpoints alone, asserting the inlining parent materialises them without repeating work. |
 | Cancelling a wait | A `waiting` workflow cancelled, asserting every recorded step is undone and the workflow ends `cancelled`. |
 | Undo after replay | A run that replays step A from a checkpoint and then fails at step B, asserting A's undo ran. This is what pins replay to the impl path, since a guard-skipped step never reaches the undo stack. |
 | Guard neutralisation | A `where` that answers differently on the second attempt, asserting a completed step stays completed and a skipped step stays skipped. |
@@ -613,10 +642,11 @@ Deferred until the milestone that meets them:
   on it. `compose` covers the in-process case; a durable child with its own queue and its
   own Oban job is a milestone 6 question.
 - **Retention.** Checkpoints accumulate. A pruning story arrives with milestone 5.
-- **Unwinding `around` and `group` children.** Both plan by calling user functions that may
-  act, so `Magma.Unwind` leaves their generated children unresolved and reports them.
-  Recording enough at checkpoint time to rebuild those steps is the fix, and it waits for a
-  workflow that puts effectful steps inside one.
+- **Checkpointing inside a nesting composite.** `group`, `around`, `recurse` and `compose`
+  run a private reactor, so their children hold no checkpoints and re-run together. Passing
+  the decoration down into the nested reactor would fix it — the nested run has a context,
+  so it can carry the checkpoint map — and it waits for a workflow that puts expensive
+  steps inside one.
 - **Actor rehydration.** The snapshot fixes authority at start time, which suits a
   workflow measured in minutes. A callback along the lines of `on_rehydrate/1`, run at the
   top of each attempt, would let an application reload the actor or re-check that it is
