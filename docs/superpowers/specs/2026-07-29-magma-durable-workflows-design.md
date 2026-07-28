@@ -118,6 +118,26 @@ transforms matter only for steps still to run.
 One `Magma.Worker` carries the reactor module in its args, so no worker module is
 generated per workflow and `Reactor.Info` supplies the rest.
 
+### What magma adds
+
+Three DSL entities: the `magma` section, `await`, and `poll`. Every existing entity keeps
+its meaning, and a reactor written without magma runs under it as it stands —
+`Magma.start/3` accepts a plain `use Reactor` module, because the decorations happen at
+run time on the built `%Reactor{}`.
+
+Alongside them comes a contract over constructs that already exist:
+
+| Construct | Under magma |
+|---|---|
+| Step outputs | survive a `term_to_binary` round trip |
+| Step names | are durable identifiers, stable across deploys |
+| `map` sources | are stably ordered |
+| `where` guards | go unconsulted for a step whose output is already recorded |
+
+That last row is the one deliberate change in evaluation, and it surfaces on replay
+alone: a completed step is skipped ahead of its guards, so a guard reading the clock or
+the database keeps the answer it gave the first time.
+
 ## The three decorations
 
 | Mechanism | Job |
