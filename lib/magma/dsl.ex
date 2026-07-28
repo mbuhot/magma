@@ -9,7 +9,11 @@ defmodule Magma.Dsl do
         max_attempts 20
       end
 
-      step :confirmation, {Magma.Step.Await, signal: "confirm", timeout: :timer.hours(48)}
+      await :confirmation, signal: "confirm", timeout: :timer.hours(48) do
+        argument :quote, result(:quote)
+      end
+
+      poll :settlement, every: :timer.seconds(30), until: &Provider.settled?/2
 
   Every existing Reactor entity keeps its meaning. A reactor written without any of this still
   runs durably, since the decoration happens at run time on the built `%Reactor{}`.
@@ -35,5 +39,16 @@ defmodule Magma.Dsl do
     ]
   }
 
-  use Spark.Dsl.Extension, sections: [@magma]
+  use Spark.Dsl.Extension,
+    sections: [@magma],
+    dsl_patches: [
+      %Spark.Dsl.Patch.AddEntity{
+        section_path: [:reactor],
+        entity: Magma.Dsl.Await.__entity__()
+      },
+      %Spark.Dsl.Patch.AddEntity{
+        section_path: [:reactor],
+        entity: Magma.Dsl.Poll.__entity__()
+      }
+    ]
 end

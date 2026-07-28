@@ -267,15 +267,19 @@ brought back by the resume job rather than by the broadcast.
 
 ---
 
-## 18. `await` and `poll` are steps, not entities yet
+## 18. `await` and `poll` are entities
 
-Both are written as a plain `step` over `Magma.Step.Await` or `Magma.Step.Poll`.
+Both are `Spark.Dsl.Entity` structs of their own, patched into Reactor's `reactor` section
+and implementing `Reactor.Dsl.Build` to add the matching step.
 
-**Why:** a custom Reactor entity needs its own target struct and a `Reactor.Dsl.Build`
-implementation, since `Reactor.Dsl.Step` has no fields for `signal`, `block_ms` or
-`on_timeout`. The step form has the whole behaviour and no new syntax to learn.
+**Why:** they carry options `Reactor.Dsl.Step` has no fields for — `signal`, `block_ms`,
+`on_timeout`, `until`, `every` — so borrowing its target was never going to work. Owning the
+struct also lets each validate its own options at compile time.
 
-**Costs:** the DSL sugar the design showed is still to come.
+Both are still ordinary nodes in the graph. They take arguments, downstream steps read their
+result, and `wait_for` orders them.
+
+**Costs:** two structs and two protocol implementations to keep alongside Reactor's own.
 
 ---
 

@@ -55,7 +55,9 @@ defmodule MyApp.Checkout do
     argument :amount, result(:order, [:total])
   end
 
-  step :confirmation, {Magma.Step.Await, signal: "confirm", timeout: :timer.hours(48)}
+  await :confirmation, signal: "confirm", timeout: :timer.hours(48) do
+    argument :quote, result(:quote)
+  end
 
   step :charge_card, MyApp.Payments.Charge do
     argument :quote, result(:quote)
@@ -89,12 +91,12 @@ each step's impl, rewriting its guards, adding middleware — then calls `Reacto
 planner and executor loop are untouched. Checkpoints load once per attempt into the context,
 so a step's lookup is a map read.
 
-**Waiting releases the job.** `Magma.Step.Await` takes a signal already delivered straight
+**Waiting releases the job.** `await` takes a signal already delivered straight
 away, blocks briefly for one that may be seconds off, then halts. The workflow becomes a row
 holding no process and no job. `Magma.signal/3` writes the signal and the resume job in one
 transaction, so a wakeup survives a crash on the sending side.
 
-`Magma.Step.Poll` covers the other case — nothing will push you, so the job snoozes and comes
+`poll` covers the other case — nothing will push you, so the job snoozes and comes
 back on its own.
 
 **A crash retries, an error unwinds.** Node death is invisible to Reactor and belongs to
@@ -130,8 +132,21 @@ shape, so an edit that adds, drops or reorders a step says so.
 - A `map` source must be stably ordered, since generated names carry the index.
 - `group`, `around`, `recurse` and `compose` run a private reactor, so each is one step with
   one checkpoint and its children re-run together.
-- `compose` with `support_undo?: true` is refused, because its recorded value would be a live
-  `%Reactor{}`.
+- `compose` records a live `%Reactor{}` when it supports undo, so that step is left
+  uncheckpointed and its nested reactor re-runs.
+
+## Retention
+
+Nothing is deleted by default. A workflow can say how long its rows are kept once it ends,
+and `config :magma, retention: ...` is the fallback:
+
+```elixir
+magma do
+  retention :timer.hours(24 * 7)
+end
+```
+
+`Magma.Pruner` runs the deletion from Oban's cron.
 
 ## Reading further
 

@@ -1,5 +1,9 @@
 spark_locals_without_parens = [
+  await: 1,
+  await: 2,
   max_attempts: 1,
+  poll: 1,
+  poll: 2,
   queue: 1,
   retention: 1,
   workflow: 1
