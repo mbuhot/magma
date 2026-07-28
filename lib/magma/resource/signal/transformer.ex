@@ -20,6 +20,7 @@ defmodule Magma.Resource.Signal.Transformer do
     |> Builder.add_new_attribute(:consumed_at, :utc_datetime_usec, public?: true)
     |> Builder.add_new_create_timestamp(:inserted_at, public?: true)
     |> Builder.add_new_action(:read, :read, primary?: true)
+    |> Builder.add_new_action(:destroy, :destroy, primary?: true)
     |> Builder.add_new_action(:create, :deliver,
       primary?: true,
       accept: [:workflow_id, :name, :payload]

@@ -110,7 +110,7 @@ defmodule Magma.Api do
   # wins over it.
   defp job_options(module, options) do
     declared =
-      if function_exported?(module, :spark_dsl_config, 0) do
+      if Code.ensure_loaded?(module) and function_exported?(module, :spark_dsl_config, 0) do
         [
           queue: Spark.Dsl.Extension.get_opt(module, [:magma], :queue, :default),
           max_attempts: Spark.Dsl.Extension.get_opt(module, [:magma], :max_attempts, 20)

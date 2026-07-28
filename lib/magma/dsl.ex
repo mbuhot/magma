@@ -24,6 +24,13 @@ defmodule Magma.Dsl do
         type: :pos_integer,
         default: 20,
         doc: "How many times a crashed run is brought back before Oban gives up."
+      ],
+      retention: [
+        type: {:or, [:pos_integer, {:in, [:infinity]}]},
+        doc: """
+        How long a finished workflow's rows are kept, in milliseconds. Falls back to
+        `config :magma, retention: ...`, and to `:infinity` if neither is set.
+        """
       ]
     ]
   }

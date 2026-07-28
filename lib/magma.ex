@@ -44,6 +44,15 @@ defmodule Magma do
   @spec child_id(String.t(), term()) :: String.t()
   defdelegate child_id(parent_workflow_id, step_name), to: Magma.Key, as: :child_id
 
+  @doc """
+  Deletes the workflows that have outlived their retention, and everything belonging to them.
+
+  Retention comes from the workflow's own `magma` section, falling back to
+  `config :magma, retention: ...` and then to `:infinity`. Nothing is deleted by default.
+  """
+  @spec prune(keyword()) :: {:ok, non_neg_integer()}
+  defdelegate prune(options \\ []), to: Magma.Retention
+
   @doc "What the store last recorded for a workflow."
   @spec fetch(String.t()) :: {:ok, Ash.Resource.record() | nil} | {:error, term()}
   defdelegate fetch(workflow_id), to: Magma.Store, as: :get_workflow

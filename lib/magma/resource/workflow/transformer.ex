@@ -32,6 +32,7 @@ defmodule Magma.Resource.Workflow.Transformer do
     |> Builder.add_new_create_timestamp(:inserted_at, public?: true)
     |> Builder.add_new_update_timestamp(:updated_at, public?: true)
     |> Builder.add_new_action(:read, :read, primary?: true)
+    |> Builder.add_new_action(:destroy, :destroy, primary?: true)
     |> Builder.add_new_action(:create, :start,
       primary?: true,
       accept: [:id, :module, :inputs, :actor, :tenant, :parent_workflow_id, :parent_signal]

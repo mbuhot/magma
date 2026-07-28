@@ -277,6 +277,40 @@ defmodule Magma.Test.Workflows do
     |> Map.fetch!(currency)
   end
 
+  defmodule Ephemeral do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    magma do
+      retention(1)
+    end
+
+    input(:order_id)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    return(:quote)
+  end
+
+  defmodule Kept do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    magma do
+      retention(:infinity)
+    end
+
+    input(:order_id)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    return(:quote)
+  end
+
   defmodule Parallel do
     @moduledoc false
     use Reactor

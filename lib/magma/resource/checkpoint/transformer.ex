@@ -23,6 +23,7 @@ defmodule Magma.Resource.Checkpoint.Transformer do
     |> Builder.add_new_create_timestamp(:inserted_at, public?: true)
     |> Builder.add_new_identity(:unique_step, [:workflow_id, :step_key])
     |> Builder.add_new_action(:read, :read, primary?: true)
+    |> Builder.add_new_action(:destroy, :destroy, primary?: true)
     |> Builder.add_new_action(:create, :record,
       primary?: true,
       accept: [:workflow_id, :step_key, :step_label, :output, :error]

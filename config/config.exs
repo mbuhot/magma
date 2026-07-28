@@ -19,5 +19,7 @@ if config_env() == :test do
 
   config :magma, domain: Magma.Test.Store, repo: Magma.TestRepo
 
+  config :ash, :missed_notifications, :ignore
+
   config :logger, level: :warning
 end
