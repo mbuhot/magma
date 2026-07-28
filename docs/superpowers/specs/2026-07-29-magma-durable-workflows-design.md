@@ -399,12 +399,73 @@ Oban, and an `{:error, ...}` that survives both is the user declaring the run ov
 
 ## Unwinding
 
-`Magma.Checkpointed.undo/4` marks `undone_at` on the step's checkpoint, in the same
-transaction as the undo. Replay skips marked rows, so an undone step runs again. Marking
-keeps the console's tape whole.
+### What Reactor already does
 
-`compensate` returning `{:continue, value}` produces a result, and it checkpoints like
-any other output.
+Two mechanisms, aimed at different steps:
+
+- `compensate/4` runs on the step that **failed**, to recover it. `{:continue, value}`
+  turns the failure into a success, `:ok` lets the error stand and starts the rollback,
+  `:retry` re-runs the step.
+- `undo/4` runs on steps that **succeeded**, newest first, to take their work back. A
+  successful step joins `reactor.undo` when it answers `can?(step, :undo)`. Each undo
+  retries up to five times before `UndoRetriesExceededError`, and an `{:error, _}` is
+  collected while the rollback carries on.
+
+`undo/4` receives the step's original arguments, rebuilt from upstream results by the same
+machinery replay leans on. So an undo that follows a replay sees the arguments the first
+run saw.
+
+### What magma adds
+
+The wrapper sits on both callbacks and writes what happened:
+
+| Callback returns | Wrapper | Checkpoint |
+|---|---|---|
+| `compensate` → `{:continue, value}` | delegates, then records | written, since the step succeeded |
+| `compensate` → `:ok`, `:retry`, `{:error, _}` | delegates | untouched, since the step never succeeded |
+| `undo` → `:ok` | delegates, then marks | `undone_at` set, inside the undo's transaction |
+| `undo` → `{:error, _}` | delegates | left as it stands, recording that the work is still out there |
+
+### Four walks
+
+**An error, no crash.** A and B complete, C fails. C compensates; failing that, Reactor
+undoes B then A, marking each. The worker hands Oban `{:cancel, error}`, and the workflow
+ends `failed` with its work taken back.
+
+**An error on a later attempt.** Attempt 1 checkpoints A and B, then the process dies.
+Attempt 2 replays A and B through the impl, so both land on the undo stack; C runs and
+fails; B and A undo for the first time. This walk is the reason replay returns through the
+impl.
+
+**A crash during the unwind.** B's undo commits its mark, then the process dies before A's
+runs. A crash is a retry, so the next attempt replays — and B, marked undone, is absent
+from the replay map, so **B runs again**, fails at C again, and both undo. B's effect is
+redone and taken back rather than left half-way: at-least-once, applied to undo.
+
+**A step that cannot be undone.** A step without `undo/4` never joins the stack and is
+never taken back. Its effect stands and the workflow ends `failed`. This is where a
+transfer that may already have moved money belongs, parked and alerted rather than
+reversed.
+
+### Cancelling a workflow that is waiting
+
+A `waiting` workflow holds no process and no job, so there is no live reactor to unwind.
+
+`Magma.cancel/1` writes `cancelling` and inserts a resume job. The worker decorates as
+usual and puts a cancel flag in the context, and the wrapper returns
+`{:error, %Magma.Cancelled{}}` from the first step that finds no checkpoint. Everything
+already recorded has replayed onto the undo stack by then, so Reactor unwinds it with the
+machinery it already has and the workflow ends `cancelled`.
+
+Cancellation is therefore replay plus one poison pill, and it needs no second rollback
+engine.
+
+### Where unwinding stops
+
+An unwind lives inside one attempt. A crash part way through restarts it by replay, which
+costs the redo in the third walk above. Checkpointing each undo so a rollback resumes
+where it stopped is the shape of a separate compensation workflow, and it stays outside
+this design.
 
 ## Resources
 
@@ -474,6 +535,8 @@ suite is built to prove it.
 | Concurrency | A workflow with parallel branches killed after one branch checkpoints, asserting the recorded branch replays and the other resumes. Plus checkpoints written from several Task processes at once. |
 | Await races | A signal during the block window, before the await is reached, and after the halt. |
 | Unwinding | Undo marks its checkpoint, and the replay after it re-runs the step. |
+| Crash mid-unwind | A process killed between two undos, asserting the next attempt redoes the marked step and takes both back. |
+| Cancelling a wait | A `waiting` workflow cancelled, asserting every recorded step is undone and the workflow ends `cancelled`. |
 | Undo after replay | A run that replays step A from a checkpoint and then fails at step B, asserting A's undo ran. This is what pins replay to the impl path, since a guard-skipped step never reaches the undo stack. |
 | Guard neutralisation | A `where` that answers differently on the second attempt, asserting a completed step stays completed and a skipped step stays skipped. |
 | Installation | `Igniter.Test` over `mix magma.install` against a bare app and against one that already has a domain, asserting it is idempotent on a second run. |
@@ -500,9 +563,6 @@ Deferred until the milestone that meets them:
 - **Child workflows.** Fasset dispatches a rail workflow from the payout spine and waits
   on it. `compose` covers the in-process case; a durable child with its own queue and its
   own Oban job is a milestone 6 question.
-- **Cancellation of a waiting workflow.** A `waiting` workflow holds no job, so cancel
-  writes a status and the next resume observes it. The interaction with unwinding is a
-  milestone 4 question.
 - **Retention.** Checkpoints accumulate. A pruning story arrives with milestone 5.
 - **Actor rehydration.** The snapshot fixes authority at start time, which suits a
   workflow measured in minutes. A callback along the lines of `on_rehydrate/1`, run at the
