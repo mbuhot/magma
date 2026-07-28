@@ -392,7 +392,7 @@ concurrency are sized together.
 | halted on `poll` | `{:snooze, n}` | `polling` |
 | *(the process died)* | a retry on Oban backoff | `pending`, replays |
 | *(attempts exhausted)* | `discarded` | unchanged, awaiting an operator |
-| a poison — `Magma.Unwinding` or `Magma.Cancelled` | `{:cancel, e}` | `failed` or `cancelled`, unwound |
+| *(never run — `Magma.Unwind` drives it)* | `:ok` once the rollback completes | `failed` or `cancelled`, unwound |
 | `{:error, e}` past `max_retries` | `{:cancel, e}` | `failed`, unwound |
 
 **A crash retries. An error unwinds.** Reactor already draws that line: `:retry` and
@@ -442,65 +442,72 @@ impl.
 **A crash during the unwind.** B's undo commits its mark, then the process dies before A's
 runs.
 
-`Reactor.run/4` accepts `:pending` and `:halted`, so a half-finished rollback has no entry
-point and magma never resumes one. What it can do is rebuild the undo stack by replay and
-then fail, which drives the rollback again through Reactor's own machinery.
-
-The rule that makes this sound:
+`Reactor.run/4` accepts `:pending` and `:halted`, so a rollback part way through has no
+entry point in the executor. Magma drives this one itself.
 
 > **A workflow that has undone anything is unwinding, and it stays unwinding.**
 
-The first `undone_at` mark moves the workflow to `unwinding`. Every attempt after that
-replays the checkpoints that still stand, rebuilding the undo stack, and refuses to do new
-work: the first step that reaches either an undone record or no record at all returns
-`{:error, %Magma.Unwinding{}}` ahead of the inner impl, and compensation is suppressed for
-that error so nothing can resurrect it. Reactor unwinds what replayed, and the workflow
-ends `failed`.
+The first `undone_at` mark moves the workflow to `unwinding`, and from then on it never
+re-enters `Reactor.run`. `Magma.Unwind` takes over, and the checkpoint table is everything
+it needs:
 
-So B is never redone and C is never retried. A rollback that starts, finishes.
+```
+standing = checkpoints with no undone_at, newest first by sequence
 
-Its residue is a scheduling one. Reactor stops starting steps once the error propagates,
-so a checkpointed branch that had yet to replay is left standing and marked in the tape.
-Replay is a map read with no IO, so the replayable frontier resolves far faster than the
-poisoned step does, and what survives is an operator's problem rather than a silent one.
+for each:
+  resolve the step, and its arguments from the checkpoint map and the workflow inputs
+  Reactor.Step.undo(step, value, arguments, context)     # retry up to 5, collect errors
+  mark undone_at
+```
 
-**A step that cannot be undone.** A step without `undo/4` never joins the stack and is
-never taken back. Its effect stands and the workflow ends `failed`. This is where a
-transfer that may already have moved money belongs, parked and alerted rather than
-reversed.
+**The marks are the rollback's progress log.** A crash in the middle leaves the remaining
+standing checkpoints exactly as they were, and the next attempt carries on from there.
+Every completed step is taken back, no step runs again, and no undo runs twice.
 
-### One mechanism, two triggers
+So B is skipped as already marked, A is undone, C is never reached, and the workflow ends
+`failed`.
 
-Resuming an unwind and cancelling a workflow are the same move: **replay to rebuild the
-undo stack, then poison the first step that would do new work.**
+**A step that cannot be undone.** A step without `undo/4` is never taken back. Its effect
+stands and the workflow ends `failed`. This is where a transfer that may already have
+moved money belongs, parked and alerted.
 
-| Trigger | Set by | Poison |
+### Resolving a step from a checkpoint
+
+`undo/4` needs a `%Step{}`. Declared steps and their `nested_steps/1` come straight off the
+built reactor. A checkpoint belonging to a child generated at run time — a `map` element, a
+`switch` branch — is materialised by driving its composite parent, whose own arguments
+resolve from the same checkpoint map. Planning is pure for `map`, `switch`, `compose` and
+`recurse`, so driving them takes nothing back and does nothing new.
+
+`around` and `group` plan by calling user functions that may act. Their generated children
+stay unresolved and are reported on the workflow, which [open questions](#open-questions)
+carries.
+
+### Two rollback paths
+
+| When | Driver | Stack from |
 |---|---|---|
-| A workflow already `unwinding` | the first `undone_at` mark | `%Magma.Unwinding{}` |
-| `Magma.cancel/1` | an operator or the application | `%Magma.Cancelled{}` |
+| A step fails inside a live run | Reactor's executor | the undo stack it built as steps completed |
+| A workflow resumes `unwinding`, or is cancelled | `Magma.Unwind` | standing checkpoints, newest first |
 
-Cancellation matters most for a workflow that is `waiting`, since it holds no process and
-no job and has no live reactor to unwind. `Magma.cancel/1` writes `cancelling` and inserts
-a resume job; the replay does the rest and the workflow ends `cancelled`.
+Forward execution is untouched. Reactor keeps owning compensation and undo inside a live
+run, and magma takes over once a run has ended with work still standing.
 
-Both poisons behave the same way in the wrapper. They fire ahead of the inner impl, they
-suppress compensation, and they leave Reactor to unwind whatever replayed. Neither needs a
-second rollback engine.
+### Cancelling
+
+`Magma.cancel/1` writes `cancelling` and inserts a job that calls `Magma.Unwind` directly.
+A `waiting` workflow holds no process and no job, and needs neither: no replay happens at
+all, and the workflow ends `cancelled`.
 
 ### Where unwinding stops
 
-A rollback picks up where the marks say it got to. An undo that recorded its mark poisons
-on the next attempt, so it runs once; an undo whose step still stands replays onto the
-stack and runs. What repeats is the boundary case every durable engine has: an undo whose
-external effect landed before its mark committed replays and undoes twice. A
-`deftransaction`-shaped undo, writing its effect and its mark together, closes that for
-anything living in the same database.
+An undo whose external effect landed before its mark committed is undone twice on the next
+attempt. That is the at-least-once boundary every durable engine draws, and an undo writing
+its effect and its mark in one transaction closes it for anything in the same database.
 
-Two things stay outside this design. Undo has no equivalent of the `{:ok, value, steps}`
-re-plan, so a composite step's generated children unwind only while their parent's replay
-reaches them. And a rollback of a rollback — an undo that itself fails and needs taking
-back — is a compensation workflow with its own row, job and replay, which is a second
-engine.
+A rollback of a rollback — an undo that fails and needs taking back — stays outside this
+design. Failed undos are collected on the workflow and their checkpoints keep standing, so
+what is still out there is on the record.
 
 Oban attempts are finite. A crash that repeats until they are exhausted leaves the job
 `discarded` and the workflow `unwinding` with a rollback part way through, which is an
@@ -553,6 +560,7 @@ lib/magma/worker.ex        the one Oban worker
 lib/magma/run.ex           decorate -> Reactor.run -> interpret the outcome
 lib/magma/checkpointed.ex  the impl wrapper
 lib/magma/middleware.ex    skip records, lifecycle, telemetry
+lib/magma/unwind.ex        rollback driven from checkpoints, newest first
 lib/magma/step/await.ex
 lib/magma/step/poll.ex
 lib/magma/resource/        the four resource extensions
@@ -575,7 +583,8 @@ suite is built to prove it.
 | Await races | A signal during the block window, before the await is reached, and after the halt. |
 | Unwinding | Undo marks its checkpoint, and the replay after it re-runs the step. |
 | Crash mid-unwind | A process killed between two undos, asserting the next attempt takes back what still stands, calls no undo twice, re-runs nothing, and never reaches the step that failed. |
-| Poison suppresses compensation | An undone step whose inner impl can compensate, asserting `{:continue, _}` cannot resurrect it. |
+| Rollback completeness | A workflow with parallel branches crashed mid-unwind, asserting every standing checkpoint is undone — the case replay-driven unwinding could not guarantee. |
+| Step resolution | Undoing a `map` element and a `switch` branch from checkpoints alone, asserting the composite parent materialises them without repeating work. |
 | Cancelling a wait | A `waiting` workflow cancelled, asserting every recorded step is undone and the workflow ends `cancelled`. |
 | Undo after replay | A run that replays step A from a checkpoint and then fails at step B, asserting A's undo ran. This is what pins replay to the impl path, since a guard-skipped step never reaches the undo stack. |
 | Guard neutralisation | A `where` that answers differently on the second attempt, asserting a completed step stays completed and a skipped step stays skipped. |
@@ -604,6 +613,10 @@ Deferred until the milestone that meets them:
   on it. `compose` covers the in-process case; a durable child with its own queue and its
   own Oban job is a milestone 6 question.
 - **Retention.** Checkpoints accumulate. A pruning story arrives with milestone 5.
+- **Unwinding `around` and `group` children.** Both plan by calling user functions that may
+  act, so `Magma.Unwind` leaves their generated children unresolved and reports them.
+  Recording enough at checkpoint time to rebuild those steps is the fix, and it waits for a
+  workflow that puts effectful steps inside one.
 - **Actor rehydration.** The snapshot fixes authority at start time, which suits a
   workflow measured in minutes. A callback along the lines of `on_rehydrate/1`, run at the
   top of each attempt, would let an application reload the actor or re-check that it is
