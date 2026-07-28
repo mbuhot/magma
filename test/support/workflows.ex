@@ -123,6 +123,50 @@ defmodule Magma.Test.Workflows do
     if Effects.count(:settlement_check) >= 2, do: {:ok, :settled}, else: :not_yet
   end
 
+  defmodule Mapped do
+    @moduledoc false
+    use Reactor
+
+    input(:order_ids)
+
+    map :charges do
+      source(input(:order_ids))
+
+      step :charge, {Effect, name: :charge} do
+        argument(:order_id, element(:charges))
+      end
+
+      return(:charge)
+    end
+
+    step :total, {Effect, name: :total} do
+      argument(:charges, result(:charges))
+    end
+
+    return(:total)
+  end
+
+  defmodule Branching do
+    @moduledoc false
+    use Reactor
+
+    input(:amount)
+
+    switch :route do
+      on(input(:amount))
+
+      matches? &(&1 > 100) do
+        step(:large, {Effect, name: :large})
+      end
+
+      default do
+        step(:small, {Effect, name: :small})
+      end
+    end
+
+    return(:route)
+  end
+
   defmodule Parallel do
     @moduledoc false
     use Reactor
