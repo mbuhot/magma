@@ -1,4 +1,6 @@
 defmodule Magma.Store do
+  require Ash.Query
+
   @moduledoc """
   Where magma's rows live, and every read and write against them.
 
@@ -67,6 +69,77 @@ defmodule Magma.Store do
       nil -> raise no_resource_message(role, domain, extension)
       resource -> resource
     end
+  end
+
+  @doc "Records a workflow about to run."
+  @spec start_workflow(map()) :: {:ok, Ash.Resource.record()} | {:error, term()}
+  def start_workflow(attrs) do
+    :workflow
+    |> resource()
+    |> Ash.Changeset.for_create(:start, attrs)
+    |> Ash.create(authorize?: false)
+  end
+
+  @doc "One workflow by id."
+  @spec get_workflow(String.t()) :: {:ok, Ash.Resource.record() | nil} | {:error, term()}
+  def get_workflow(id) do
+    Ash.get(resource(:workflow), id, authorize?: false, error?: false)
+  end
+
+  @doc "Moves a workflow to a state, or to a terminal one carrying its outcome."
+  @spec update_workflow(Ash.Resource.record(), atom(), map()) ::
+          {:ok, Ash.Resource.record()} | {:error, term()}
+  def update_workflow(workflow, action, attrs \\ %{}) do
+    workflow
+    |> Ash.Changeset.for_update(action, attrs)
+    |> Ash.update(authorize?: false)
+  end
+
+  @doc """
+  Every checkpoint a workflow has, keyed by step key.
+
+  One read per attempt. A step's lookup during the run is against this map rather than the
+  database, and rows already taken back are absent, so the step runs again.
+  """
+  @spec checkpoints(String.t()) :: %{binary() => Ash.Resource.record()}
+  def checkpoints(workflow_id) do
+    :checkpoint
+    |> resource()
+    |> Ash.Query.filter(workflow_id == ^workflow_id and is_nil(undone_at))
+    |> Ash.read!(authorize?: false)
+    |> Map.new(&{&1.step_key, &1})
+  end
+
+  @doc "Every checkpoint a workflow has that still stands, newest first."
+  @spec standing(String.t()) :: [Ash.Resource.record()]
+  def standing(workflow_id) do
+    :checkpoint
+    |> resource()
+    |> Ash.Query.filter(workflow_id == ^workflow_id and is_nil(undone_at))
+    |> Ash.Query.sort(id: :desc)
+    |> Ash.read!(authorize?: false)
+  end
+
+  @doc "Writes what a step produced."
+  @spec record(String.t(), term(), term()) :: {:ok, Ash.Resource.record()} | {:error, term()}
+  def record(workflow_id, name, output) do
+    :checkpoint
+    |> resource()
+    |> Ash.Changeset.for_create(:record, %{
+      workflow_id: workflow_id,
+      step_key: Magma.Key.for(name),
+      step_label: Magma.Key.label(name),
+      output: output
+    })
+    |> Ash.create(authorize?: false)
+  end
+
+  @doc "Marks a checkpoint as taken back."
+  @spec mark_undone(Ash.Resource.record()) :: {:ok, Ash.Resource.record()} | {:error, term()}
+  def mark_undone(checkpoint) do
+    checkpoint
+    |> Ash.Changeset.for_update(:mark_undone, %{})
+    |> Ash.update(authorize?: false)
   end
 
   defp no_resource_message(role, domain, extension) do

@@ -1,0 +1,79 @@
+defmodule Magma.Test.Workflows do
+  @moduledoc "Reactors the suite runs durably."
+
+  alias Magma.Test.Effects
+
+  defmodule Effect do
+    @moduledoc false
+    use Reactor.Step
+
+    @impl true
+    def run(arguments, _context, options) do
+      name = Keyword.fetch!(options, :name)
+      Effects.record(name)
+
+      if Effects.should_fail?(name) do
+        raise "#{name} is down"
+      else
+        {:ok, {name, arguments}}
+      end
+    end
+  end
+
+  defmodule Undoable do
+    @moduledoc false
+    use Reactor.Step
+
+    @impl true
+    def run(arguments, context, options), do: Effect.run(arguments, context, options)
+
+    @impl true
+    def undo(_value, _arguments, _context, options) do
+      Effects.record({:undo, Keyword.fetch!(options, :name)})
+      :ok
+    end
+  end
+
+  defmodule Linear do
+    @moduledoc false
+    use Reactor
+
+    input(:order_id)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    step :charge, {Effect, name: :charge} do
+      argument(:quote, result(:quote))
+    end
+
+    step :ship, {Effect, name: :ship} do
+      argument(:charge, result(:charge))
+    end
+
+    return(:ship)
+  end
+
+  defmodule Parallel do
+    @moduledoc false
+    use Reactor
+
+    input(:order_id)
+
+    step :left, {Effect, name: :left} do
+      argument(:order_id, input(:order_id))
+    end
+
+    step :right, {Effect, name: :right} do
+      argument(:order_id, input(:order_id))
+    end
+
+    step :join, {Effect, name: :join} do
+      argument(:left, result(:left))
+      argument(:right, result(:right))
+    end
+
+    return(:join)
+  end
+end
