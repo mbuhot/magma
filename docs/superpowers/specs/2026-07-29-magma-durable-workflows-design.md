@@ -13,7 +13,7 @@ together.
 
 - [Shape](#shape)
 - [Authoring](#authoring)
-- [The three decorations](#the-three-decorations)
+- [Interception](#interception)
 - [Concurrency and ordering](#concurrency-and-ordering)
 - [The replay contract](#the-replay-contract)
 - [Actor and tenant](#actor-and-tenant)
@@ -132,23 +132,89 @@ Alongside them comes a contract over constructs that already exist:
 | Step outputs | survive a `term_to_binary` round trip |
 | Step names | are durable identifiers, stable across deploys |
 | `map` sources | are stably ordered |
-| `where` guards | go unconsulted for a step whose output is already recorded |
+| `where` guards | keep the answer they gave the first time |
 
 That last row is the one deliberate change in evaluation, and it surfaces on replay
-alone: a completed step is skipped ahead of its guards, so a guard reading the clock or
-the database keeps the answer it gave the first time.
+alone. A guard reading the clock or the database gave an answer that has already been
+acted on, so magma holds it to that answer.
 
-## The three decorations
+## Interception
 
-| Mechanism | Job |
-|---|---|
-| **Guard**, prepended to `step.guards` | A recorded output produces `{:halt, {:ok, value}}`. The step's own `where` guards stay unevaluated for work already done. |
-| **Impl wrapper** — `impl: {Magma.Checkpointed, inner: impl, name: name}` | Writes the checkpoint transactionally after a successful run, decorates dynamically returned steps, and intercepts `undo`/`compensate`. |
-| **Middleware** | Records guard-skip decisions, workflow lifecycle, telemetry. |
+### Where it hooks
 
-The impl wrapper owns the checkpoint write because a failed write has to fail the step.
-Middleware `event/3` returns `:ok` and can only observe, so it carries the advisory
-records.
+`Magma.Run.decorate/1` rewrites the built `%Reactor{}` before handing it to
+`Reactor.run/4`. Reactor's public API is the entire interface; no executor internals are
+reached into.
+
+```elixir
+%Reactor{reactor |
+  middleware: [Magma.Middleware | reactor.middleware],
+  context: Map.merge(reactor.context, %{actor: actor, tenant: tenant, magma: run_state}),
+  steps: Enum.map(reactor.steps, &decorate_step/1)
+}
+```
+
+```elixir
+%Step{step |
+  impl: {Magma.Checkpointed, magma_inner: step.impl, magma_name: step.name},
+  guards: Enum.map(step.guards, &neutralise/1)
+}
+```
+
+`arguments` are left alone, so the planner derives exactly the graph the DSL describes.
+
+### What the executor does with a step
+
+`Reactor.Executor.StepRunner.run/4` runs three things in order: assemble arguments from
+`intermediate_results` and the reactor's inputs, `evaluate_guards/4`, then
+`Reactor.Step.run/3` dispatching to `impl`. Magma sits in the last two.
+
+| Record for this step | Guards | Impl | The executor sees |
+|---|---|---|---|
+| an output | forced to `:cont` | returns the recorded value | an ordinary success |
+| a skip | forced to `{:halt, recorded}` | never called | `{:skip, …}` |
+| none | the user's own answer | the inner impl runs, and its output is written | whatever happened |
+
+### Why replay returns through the impl
+
+`Reactor.Executor.Sync.maybe_store_undo/4` reads:
+
+```elixir
+cond do
+  MapSet.member?(state.skipped, step.ref) -> reactor
+  Step.can?(step, :undo) -> %{reactor | undo: [{step, value} | reactor.undo]}
+  true -> reactor
+end
+```
+
+A guard-skipped step is left off the undo stack. That is right for `where` — a step that
+never ran has nothing to take back — and wrong for replay, where a step that ran on an
+earlier attempt has plenty.
+
+So a replayed value comes back **through the impl**, which makes the step an ordinary
+success: it lands on the undo stack, it stores an intermediate result, and a failure later
+in the run unwinds it like any other completed work.
+
+Neutralising the user's guards is what protects that. With an output on record they are
+forced to `:cont`, so nothing skips a step whose effect has already happened. With a skip
+on record they are forced to `{:halt, recorded}`, which reproduces the original skip and
+correctly keeps it off the undo stack.
+
+### The wrapper's other jobs
+
+- Delegates `can?`, `async?`, `nested_steps` and `backoff` to the inner impl, decorating
+  nested steps on the way through.
+- `undo/4` delegates, then marks `undone_at` on the checkpoint, in one transaction.
+- `compensate/4` delegates. A `{:continue, value}` is a result, so it checkpoints.
+- A step returning `{:ok, value, steps}` holds no checkpoint and has its returned steps
+  decorated.
+
+### Middleware
+
+Writes skip records from `{:guard_fail, guard, result}`, and carries workflow lifecycle
+and telemetry. Its `event/3` returns `:ok` and can only observe, which is why the
+checkpoint write lives in the impl where a failure can fail the step. A lost skip record
+costs one re-evaluation of a guard.
 
 ### Composite steps re-plan
 
@@ -374,6 +440,8 @@ suite is built to prove it.
 | Concurrency | A workflow with parallel branches killed after one branch checkpoints, asserting the recorded branch replays and the other resumes. Plus checkpoints written from several Task processes at once. |
 | Await races | A signal during the block window, before the await is reached, and after the halt. |
 | Unwinding | Undo marks its checkpoint, and the replay after it re-runs the step. |
+| Undo after replay | A run that replays step A from a checkpoint and then fails at step B, asserting A's undo ran. This is what pins replay to the impl path, since a guard-skipped step never reaches the undo stack. |
+| Guard neutralisation | A `where` that answers differently on the second attempt, asserting a completed step stays completed and a skipped step stays skipped. |
 | Installation | `Igniter.Test` over `mix magma.install` against a bare app and against one that already has a domain, asserting it is idempotent on a second run. |
 
 `Magma.Testing` sits over `Oban.Testing` in `:manual` mode so tests drain deterministically.
