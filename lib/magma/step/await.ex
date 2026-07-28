@@ -32,6 +32,7 @@ defmodule Magma.Step.Await do
   defp park_and_block(workflow_id, name, options) do
     deadline = deadline(options)
     {:ok, _waiter} = Store.park(workflow_id, name, :signal, deadline)
+    :ok = Magma.Api.schedule_timeout(workflow_id, deadline)
 
     Magma.Notifier.listen(workflow_id, name)
 

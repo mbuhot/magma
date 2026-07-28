@@ -51,6 +51,24 @@ defmodule Magma.Api do
     end
   end
 
+  # A deadline needs something to bring the workflow back at it, since a parked workflow holds
+  # no job of its own.
+  def schedule_timeout(_workflow_id, nil), do: :ok
+
+  def schedule_timeout(workflow_id, deadline) do
+    case Store.get_workflow(workflow_id) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, workflow} ->
+        {:ok, _job} = enqueue(workflow, schedule_at: deadline)
+        :ok
+
+      _error ->
+        :ok
+    end
+  end
+
   def cancel(workflow_id) do
     with {:ok, workflow} when not is_nil(workflow) <- Store.get_workflow(workflow_id),
          {:ok, cancelling} <- Store.update_workflow(workflow, :set_status, %{status: :cancelling}),
@@ -83,7 +101,7 @@ defmodule Magma.Api do
 
     Keyword.merge(
       declared,
-      Keyword.take(options, [:queue, :max_attempts, :priority, :schedule_in])
+      Keyword.take(options, [:queue, :max_attempts, :priority, :schedule_in, :schedule_at])
     )
   end
 end

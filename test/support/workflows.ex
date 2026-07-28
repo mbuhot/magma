@@ -101,6 +101,28 @@ defmodule Magma.Test.Workflows do
     return(:ship)
   end
 
+  defmodule Polling do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    step(:settlement, {Magma.Step.Poll, every: 60_000, until: &Magma.Test.Workflows.settled/2})
+
+    return(:settlement)
+  end
+
+  @doc false
+  def settled(_arguments, _context) do
+    Effects.record(:settlement_check)
+
+    if Effects.count(:settlement_check) >= 2, do: {:ok, :settled}, else: :not_yet
+  end
+
   defmodule Parallel do
     @moduledoc false
     use Reactor
