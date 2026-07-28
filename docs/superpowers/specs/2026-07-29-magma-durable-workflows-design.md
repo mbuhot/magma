@@ -91,6 +91,21 @@ end
 
 State flows through Reactor's own argument templates. `input/1` reads the workflow's
 inputs; `result/1` and `result/2` read a named step's output, optionally down a path.
+
+The spelling depends on the entity, and both forms compile to `Reactor.Argument`s that
+draw the same edges in the DAG:
+
+| Entity | Wiring |
+|---|---|
+| `step` | `argument`, `wait_for` |
+| An `Ash.Reactor` action — `read_one`, `update`, `create`, … | `inputs` for the action's params, `initial` for the record it acts on, `actor`, `tenant`, `context`, `load`, `wait_for` |
+
+An action step has several kinds of dependency to keep apart, so it names each one. A
+plain step has one kind and calls it `argument`. The template functions are shared, and
+`argument` is absent from the action entities.
+
+Magma's `await` is a plain Reactor step, so it takes `argument` and `wait_for`.
+
 Magma adds no state channel of its own, and that omission is what makes replay work:
 
 > **Arguments hold no checkpoint. Outputs do.**
@@ -99,9 +114,6 @@ On every attempt each step's arguments are rebuilt from the recorded outputs of 
 upstream and the inputs on the workflow row, so they are identical by construction. A
 step whose output is already recorded is skipped whatever its arguments say, so argument
 transforms matter only for steps still to run.
-
-`await` is an ordinary node in that graph — it takes arguments, its result is
-`result(:confirmation)`, and `wait_for` orders it against steps it reads nothing from.
 
 One `Magma.Worker` carries the reactor module in its args, so no worker module is
 generated per workflow and `Reactor.Info` supplies the rest.
