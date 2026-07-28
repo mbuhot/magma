@@ -152,20 +152,41 @@ any other output.
 
 ## Resources
 
-An Ash domain, `Magma`, on AshPostgres.
+The store lives in the consuming application. Magma ships four resource extensions and
+owns the contract; the app owns the modules, the domain, the tables and the migrations,
+which puts the store inside whatever repo, multitenancy and policies the app already has.
 
-| Resource | Holds |
+| Extension | Resource holds |
 |---|---|
-| `Workflow` | module, inputs, status, result, error, timestamps |
-| `Checkpoint` | workflow, `sequence`, step name, output, error, `undone_at` |
-| `Signal` | workflow, name, payload, `consumed_at` |
-| `Waiter` | workflow, name, deadline |
+| `Magma.Resource.Workflow` | module, inputs, status, result, error, timestamps |
+| `Magma.Resource.Checkpoint` | workflow, `sequence`, step name, output, error, `undone_at` |
+| `Magma.Resource.Signal` | workflow, name, payload, `consumed_at` |
+| `Magma.Resource.Waiter` | workflow, name, deadline |
+
+Each extension injects the attributes, relationships, identities and actions that role
+needs, so an app resource is the extension plus its `postgres do end` block.
+
+Magma reads the roles off a domain, which is a place to look rather than a concept magma
+claims. Any domain serves, including one the app already has:
+
+```elixir
+config :my_app, Magma,
+  repo: MyApp.Repo,
+  domain: MyApp.Workflows
+```
+
+`mix magma.install` writes the four resources as source into the app, wires the config,
+and creates a domain for them when the app names none. Generated files stay readable and
+editable in place, so customising a resource is an edit rather than an escape hatch.
 
 `sequence` is a bigserial. Reactor runs steps concurrently, so the tape orders by
 completion, and the step name is the lookup key.
 
 Terms serialize with `:erlang.term_to_binary/2` into `bytea`, so atoms, tuples, structs,
 Decimals and Ash records round trip exactly. A UI renders them through `inspect/2`.
+
+Magma's own reads and writes pass `authorize?: false`, since they are engine bookkeeping
+running beneath whatever policies the app puts on these resources.
 
 ## Modules
 
@@ -178,8 +199,10 @@ lib/magma/checkpointed.ex  the impl wrapper
 lib/magma/middleware.ex    skip records, lifecycle, telemetry
 lib/magma/step/await.ex
 lib/magma/step/poll.ex
-lib/magma/resources/       the Ash domain
+lib/magma/resource/        the four resource extensions
+lib/magma/store.ex         role lookup, and every read and write against them
 lib/magma/testing.ex
+lib/mix/tasks/magma.install.ex
 ```
 
 Authoring is a Reactor extension:
@@ -216,6 +239,7 @@ suite is built to prove it.
 | Generated names | Stability across `map`, `switch`, `compose`, `recurse`, `group`, `around` — the contract's most dynamic surface. |
 | Await races | A signal during the block window, before the await is reached, and after the halt. |
 | Unwinding | Undo marks its checkpoint, and the replay after it re-runs the step. |
+| Installation | `Igniter.Test` over `mix magma.install` against a bare app and against one that already has a domain, asserting it is idempotent on a second run. |
 
 `Magma.Testing` sits over `Oban.Testing` in `:manual` mode so tests drain deterministically.
 
@@ -223,7 +247,7 @@ suite is built to prove it.
 
 | | |
 |---|---|
-| 1 | **Scaffold** — mix project, ash / ash_postgres / reactor / oban / usage_rules, `mix usage_rules.sync`, the domain and its migration, CI |
+| 1 | **Scaffold** — mix project, ash / ash_postgres / reactor / oban / igniter / usage_rules, `mix usage_rules.sync`, the four resource extensions, `mix magma.install`, CI |
 | 2 | **Durable core** — decoration, worker, `Magma.start/await`, and the first crash-recovery test green |
 | 3 | **Waiting** — await, poll, signal, timeout jobs |
 | 4 | **Unwinding** — undo marks, compensate, cancel |
