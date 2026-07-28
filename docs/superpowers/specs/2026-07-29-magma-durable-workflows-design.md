@@ -163,6 +163,40 @@ reached into.
 
 `arguments` are left alone, so the planner derives exactly the graph the DSL describes.
 
+### Step identity
+
+A step is identified by its `name`, and `%Reactor.Step{name: any}` means that is an
+arbitrary term:
+
+| Origin | Name | Unique because |
+|---|---|---|
+| `step :charge_card` | `:charge_card` | Spark's `identifier: :name` rejects duplicates at compile time |
+| `map` children | `{Reactor.Step.Map, outer_name, inner_name, index}` | it carries the outer step's name and the element index |
+| `compose` | `{:compose, name}` | it carries the call site's name, so one sub-reactor composed twice yields two identities |
+| `Reactor.Builder` at run time | whatever the caller passes | the unique index below turns a collision into a loud error |
+
+So the key is derived rather than stored as text:
+
+```elixir
+step_key = :crypto.hash(:sha256, :erlang.term_to_binary(name, [:deterministic]))
+```
+
+`:deterministic` is what makes this work. The default encoding may vary between runs
+through atom cache references and map key ordering, which would hash the same name two
+ways across attempts. The canonical encoding gives one answer.
+
+Hashing gives a fixed 32 bytes for a term of unbounded size. `step_label`, an
+`inspect(name, limit: :infinity)`, rides alongside for the console and for SQL debugging,
+and display is its only job — replay hashes the live step's name and never reconstructs
+the recorded one.
+
+`(workflow_id, step_key)` is unique, which earns its place twice: it is the replay lookup,
+and it makes the checkpoint write idempotent, so two processes racing to record one step
+collide loudly.
+
+Nothing else enters identity. `step.ref` is a `make_ref/0`, fresh in every process and
+every attempt, and the plan position, impl module and arguments are all free to move.
+
 ### What the executor does with a step
 
 `Reactor.Executor.StepRunner.run/4` runs three things in order: assemble arguments from
@@ -381,7 +415,7 @@ which puts the store inside whatever repo, multitenancy and policies the app alr
 | Extension | Resource holds |
 |---|---|
 | `Magma.Resource.Workflow` | module, inputs, actor, tenant, status, result, error, timestamps |
-| `Magma.Resource.Checkpoint` | workflow, `sequence`, step name, output, error, `undone_at` |
+| `Magma.Resource.Checkpoint` | workflow, `sequence`, `step_key`, `step_label`, output, error, `undone_at` |
 | `Magma.Resource.Signal` | workflow, name, payload, `consumed_at` |
 | `Magma.Resource.Waiter` | workflow, name, deadline |
 
