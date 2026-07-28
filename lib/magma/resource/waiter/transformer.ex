@@ -15,13 +15,18 @@ defmodule Magma.Resource.Waiter.Transformer do
     |> Common.add_id()
     |> Common.add_workflow()
     |> Builder.add_new_attribute(:name, :string, allow_nil?: false, public?: true)
+    |> Builder.add_new_attribute(:kind, Magma.Waiting,
+      allow_nil?: false,
+      public?: true,
+      default: :signal
+    )
     |> Builder.add_new_attribute(:deadline, :utc_datetime_usec, public?: true)
     |> Builder.add_new_create_timestamp(:inserted_at, public?: true)
     |> Builder.add_new_identity(:unique_wait, [:workflow_id, :name])
     |> Builder.add_new_action(:read, :read, primary?: true)
     |> Builder.add_new_action(:create, :park,
       primary?: true,
-      accept: [:workflow_id, :name, :deadline],
+      accept: [:workflow_id, :name, :kind, :deadline],
       upsert?: true,
       upsert_identity: :unique_wait
     )

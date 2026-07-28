@@ -51,9 +51,47 @@ defmodule Magma.Worker do
     :ok
   end
 
+  # A halted run has already written what it is parked on, so the worker reads that from
+  # committed state rather than from the halt.
+  defp outcome({:halted, _reactor}, workflow) do
+    case Store.waiters(workflow.id) do
+      [] ->
+        {:ok, _waiting} = Store.update_workflow(workflow, :set_status, %{status: :waiting})
+        :ok
+
+      waiters ->
+        park(workflow, waiters)
+    end
+  end
+
   defp outcome({:error, error}, workflow) do
     {:ok, current} = Store.get_workflow(workflow.id)
     {:ok, _failed} = Store.update_workflow(current, :fail, %{error: error})
     {:cancel, error}
+  end
+
+  defp park(workflow, waiters) do
+    case Enum.filter(waiters, &(&1.kind == :poll)) do
+      [] ->
+        {:ok, _waiting} = Store.update_workflow(workflow, :set_status, %{status: :waiting})
+        :ok
+
+      polls ->
+        {:ok, _polling} = Store.update_workflow(workflow, :set_status, %{status: :polling})
+        {:snooze, soonest(polls)}
+    end
+  end
+
+  defp soonest(polls) do
+    polls
+    |> Enum.map(&seconds_until(&1.deadline))
+    |> Enum.min()
+    |> max(1)
+  end
+
+  defp seconds_until(nil), do: 30
+
+  defp seconds_until(deadline) do
+    DateTime.utc_now() |> DateTime.diff(deadline) |> abs()
   end
 end

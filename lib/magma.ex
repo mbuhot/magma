@@ -21,6 +21,17 @@ defmodule Magma do
   defdelegate start(module, inputs \\ %{}, options \\ []), to: Magma.Api
 
   @doc """
+  Delivers a signal to a workflow, waking it if it is parked on that name.
+
+  The signal and the job that brings the workflow back commit together, so a crash on the
+  sending side cannot leave a parked workflow with nothing coming for it.
+
+      Magma.signal(workflow.id, "confirm", %{approver: "sam"})
+  """
+  @spec signal(String.t(), String.t(), term()) :: {:ok, Ash.Resource.record()} | {:error, term()}
+  defdelegate signal(workflow_id, name, payload \\ nil), to: Magma.Api
+
+  @doc """
   Stops a workflow and takes back everything it has done.
 
   A workflow that is waiting holds no process and no job, so this writes its status and

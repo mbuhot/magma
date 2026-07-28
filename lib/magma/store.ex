@@ -142,6 +142,81 @@ defmodule Magma.Store do
     |> Ash.update(authorize?: false)
   end
 
+  @doc "The oldest signal of a name a workflow has not taken yet."
+  @spec pending_signal(String.t(), String.t()) :: Ash.Resource.record() | nil
+  def pending_signal(workflow_id, name) do
+    :signal
+    |> resource()
+    |> Ash.Query.filter(workflow_id == ^workflow_id and name == ^name and is_nil(consumed_at))
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.limit(1)
+    |> Ash.read!(authorize?: false)
+    |> List.first()
+  end
+
+  @doc "Takes a signal, so a second delivery of the name stays distinct from this one."
+  @spec consume_signal(Ash.Resource.record()) :: {:ok, Ash.Resource.record()} | {:error, term()}
+  def consume_signal(signal) do
+    signal
+    |> Ash.Changeset.for_update(:consume, %{})
+    |> Ash.update(authorize?: false)
+  end
+
+  @doc "Records a signal for a workflow."
+  @spec deliver_signal(String.t(), String.t(), term()) ::
+          {:ok, Ash.Resource.record()} | {:error, term()}
+  def deliver_signal(workflow_id, name, payload) do
+    :signal
+    |> resource()
+    |> Ash.Changeset.for_create(:deliver, %{
+      workflow_id: workflow_id,
+      name: name,
+      payload: payload
+    })
+    |> Ash.create(authorize?: false)
+  end
+
+  @doc "Records that a workflow is parked, and on what."
+  @spec park(String.t(), String.t(), atom(), DateTime.t() | nil) ::
+          {:ok, Ash.Resource.record()} | {:error, term()}
+  def park(workflow_id, name, kind, deadline) do
+    :waiter
+    |> resource()
+    |> Ash.Changeset.for_create(:park, %{
+      workflow_id: workflow_id,
+      name: name,
+      kind: kind,
+      deadline: deadline
+    })
+    |> Ash.create(authorize?: false)
+  end
+
+  @doc "Everything a workflow is currently parked on."
+  @spec waiters(String.t()) :: [Ash.Resource.record()]
+  def waiters(workflow_id) do
+    :waiter
+    |> resource()
+    |> Ash.Query.filter(workflow_id == ^workflow_id)
+    |> Ash.read!(authorize?: false)
+  end
+
+  @doc "Whether a workflow is parked on a name."
+  @spec waiting_on?(String.t(), String.t()) :: boolean()
+  def waiting_on?(workflow_id, name) do
+    Enum.any?(waiters(workflow_id), &(&1.name == name))
+  end
+
+  @doc "Clears a wait that has been answered."
+  @spec release(String.t(), String.t()) :: :ok
+  def release(workflow_id, name) do
+    workflow_id
+    |> waiters()
+    |> Enum.filter(&(&1.name == name))
+    |> Enum.each(&Ash.destroy!(&1, authorize?: false))
+
+    :ok
+  end
+
   defp no_resource_message(role, domain, extension) do
     """
     magma found no #{role} resource in #{inspect(domain)}.

@@ -82,6 +82,25 @@ defmodule Magma.Test.Workflows do
     return(:ship)
   end
 
+  defmodule Approval do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    step(:confirmation, {Magma.Step.Await, signal: "confirm", block_ms: 50})
+
+    step :ship, {Effect, name: :ship} do
+      argument(:confirmation, result(:confirmation))
+    end
+
+    return(:ship)
+  end
+
   defmodule Parallel do
     @moduledoc false
     use Reactor
