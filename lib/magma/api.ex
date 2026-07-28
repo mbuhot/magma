@@ -61,7 +61,7 @@ defmodule Magma.Api do
         :ok
 
       {:ok, workflow} ->
-        {:ok, _job} = enqueue(workflow, schedule_at: deadline)
+        {:ok, _job} = enqueue(workflow, scheduled_at: deadline)
         :ok
 
       _error ->
@@ -101,7 +101,7 @@ defmodule Magma.Api do
 
     Keyword.merge(
       declared,
-      Keyword.take(options, [:queue, :max_attempts, :priority, :schedule_in, :schedule_at])
+      Keyword.take(options, [:queue, :max_attempts, :priority, :schedule_in, :scheduled_at])
     )
   end
 end

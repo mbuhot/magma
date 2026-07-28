@@ -92,7 +92,7 @@ defmodule Magma.Test.Workflows do
       argument(:order_id, input(:order_id))
     end
 
-    step(:confirmation, {Magma.Step.Await, signal: "confirm", block_ms: 50})
+    step(:confirmation, {Magma.Step.Await, signal: "confirm", block_ms: 50, timeout: 600_000})
 
     step :ship, {Effect, name: :ship} do
       argument(:confirmation, result(:confirmation))

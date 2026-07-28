@@ -26,7 +26,17 @@ defmodule Magma.AwaitTest do
     assert reload(workflow).status == :waiting
     assert Effects.count(:quote) == 1
     assert Effects.count(:ship) == 0
-    assert [] = all_enqueued(worker: Magma.Worker)
+  end
+
+  test "a wait with a deadline holds one job, scheduled for when it lapses" do
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+
+    drain()
+
+    assert [job] = all_enqueued(worker: Magma.Worker)
+    assert job.state == "scheduled"
+    assert DateTime.compare(job.scheduled_at, DateTime.utc_now()) == :gt
+    assert job.args["workflow_id"] == workflow.id
   end
 
   test "a parked workflow records what it is waiting on" do

@@ -22,3 +22,7 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 magma-*.tar
 
+
+# Example apps build their own artifacts
+/examples/*/_build/
+/examples/*/deps/
