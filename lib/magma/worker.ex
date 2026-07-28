@@ -20,10 +20,30 @@ defmodule Magma.Worker do
     end
   end
 
+  defp run(%{status: status} = workflow) when status in [:completed, :failed, :cancelled] do
+    {:cancel, "workflow #{workflow.id} already ended as #{status}"}
+  end
+
+  defp run(%{status: :unwinding} = workflow), do: unwind(workflow, :fail)
+  defp run(%{status: :cancelling} = workflow), do: unwind(workflow, :cancelled)
+
   defp run(workflow) do
     workflow
     |> Run.run()
     |> outcome(workflow)
+  end
+
+  # A rollback already under way never rolls forward again. It picks up from the marks and
+  # ends the workflow once nothing is left standing.
+  defp unwind(workflow, ending) do
+    case Magma.Unwind.run(workflow) do
+      {:ok, []} ->
+        {:ok, _ended} = Store.update_workflow(workflow, ending, %{})
+        :ok
+
+      {:error, errors} ->
+        {:cancel, errors}
+    end
   end
 
   defp outcome({:ok, result}, workflow) do
@@ -32,7 +52,8 @@ defmodule Magma.Worker do
   end
 
   defp outcome({:error, error}, workflow) do
-    {:ok, _failed} = Store.update_workflow(workflow, :fail, %{error: error})
+    {:ok, current} = Store.get_workflow(workflow.id)
+    {:ok, _failed} = Store.update_workflow(current, :fail, %{error: error})
     {:cancel, error}
   end
 end

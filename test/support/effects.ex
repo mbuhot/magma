@@ -2,14 +2,24 @@ defmodule Magma.Test.Effects do
   @moduledoc "Counts what each step actually did, so a test can prove nothing ran twice."
 
   def start_link do
-    Agent.start_link(fn -> %{} end, name: __MODULE__)
+    Agent.start_link(fn -> %{order: []} end, name: __MODULE__)
   end
 
-  def reset, do: Agent.update(__MODULE__, fn _state -> %{} end)
+  def reset, do: Agent.update(__MODULE__, fn _state -> %{order: []} end)
 
   def record(name) do
-    Agent.update(__MODULE__, &Map.update(&1, name, 1, fn count -> count + 1 end))
+    Agent.update(__MODULE__, fn state ->
+      state
+      |> Map.update(name, 1, fn count -> count + 1 end)
+      |> Map.update(:order, [name], &(&1 ++ [name]))
+    end)
   end
+
+  def order, do: Agent.get(__MODULE__, &Map.get(&1, :order, []))
+
+  def fail_undo(name), do: Agent.update(__MODULE__, &Map.put(&1, {:fail_undo, name}, true))
+
+  def undo_should_fail?(name), do: Agent.get(__MODULE__, &Map.get(&1, {:fail_undo, name}, false))
 
   def count(name), do: Agent.get(__MODULE__, &Map.get(&1, name, 0))
 

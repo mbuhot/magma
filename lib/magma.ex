@@ -20,6 +20,15 @@ defmodule Magma do
   @spec start(module(), map(), keyword()) :: {:ok, Ash.Resource.record()} | {:error, term()}
   defdelegate start(module, inputs \\ %{}, options \\ []), to: Magma.Api
 
+  @doc """
+  Stops a workflow and takes back everything it has done.
+
+  A workflow that is waiting holds no process and no job, so this writes its status and
+  enqueues the job that drives the rollback from its checkpoints.
+  """
+  @spec cancel(String.t()) :: {:ok, Ash.Resource.record()} | {:error, term()}
+  defdelegate cancel(workflow_id), to: Magma.Api
+
   @doc "What the store last recorded for a workflow."
   @spec fetch(String.t()) :: {:ok, Ash.Resource.record() | nil} | {:error, term()}
   defdelegate fetch(workflow_id), to: Magma.Store, as: :get_workflow

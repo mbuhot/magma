@@ -20,7 +20,7 @@ defmodule Magma.Test.Workflows do
     end
   end
 
-  defmodule Undoable do
+  defmodule Undoable.Step do
     @moduledoc false
     use Reactor.Step
 
@@ -29,9 +29,36 @@ defmodule Magma.Test.Workflows do
 
     @impl true
     def undo(_value, _arguments, _context, options) do
-      Effects.record({:undo, Keyword.fetch!(options, :name)})
-      :ok
+      name = Keyword.fetch!(options, :name)
+
+      if Effects.undo_should_fail?(name) do
+        {:error, "cannot reverse #{name}"}
+      else
+        Effects.record({:undo, name})
+        :ok
+      end
     end
+  end
+
+  defmodule Undoable do
+    @moduledoc false
+    use Reactor
+
+    input(:order_id)
+
+    step :quote, {Magma.Test.Workflows.Undoable.Step, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    step :charge, {Magma.Test.Workflows.Undoable.Step, name: :charge} do
+      argument(:quote, result(:quote))
+    end
+
+    step :ship, {Magma.Test.Workflows.Undoable.Step, name: :ship} do
+      argument(:charge, result(:charge))
+    end
+
+    return(:ship)
   end
 
   defmodule Linear do

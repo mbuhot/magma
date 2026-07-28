@@ -12,6 +12,7 @@ defmodule Magma.Status do
       waiting: "parked on a signal, holding no process and no job",
       polling: "parked between polls, snoozed as an Oban job",
       unwinding: "has taken work back and is committed to taking back the rest",
+      cancelling: "stopped by request, with its rollback still to run",
       completed: "finished, with a result",
       failed: "ended on an error, with whatever could be unwound taken back",
       cancelled: "ended on a cancellation, with whatever could be unwound taken back"

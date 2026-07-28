@@ -52,20 +52,31 @@ defmodule Magma.WorkerTest do
     assert done.error != nil
   end
 
-  test "a step that failed once is the only one re-run when the job is retried" do
+  test "an error ends the run, leaving the steps that finished on record" do
     Effects.fail_after(:charge, 1)
     {:ok, workflow} = Magma.start(Workflows.Linear, %{order_id: "ord_1"})
 
-    Oban.drain_queue(queue: :default, with_recursion: true, with_safety: false)
+    done = run_until_done(workflow)
 
+    assert done.status == :failed
     assert Effects.count(:quote) == 1
     assert Effects.count(:charge) == 1
+    assert Effects.count(:ship) == 0
 
-    Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow.id}})
+    labels = workflow.id |> Magma.steps() |> Enum.map(& &1.step_label)
 
+    assert labels == [":quote"]
+  end
+
+  test "a workflow that already ended is not run again" do
+    {:ok, workflow} = Magma.start(Workflows.Linear, %{order_id: "ord_1"})
+    run_until_done(workflow)
+
+    assert {:cancel, reason} =
+             Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow.id}})
+
+    assert reason =~ "already ended"
     assert Effects.count(:quote) == 1
-    assert Effects.count(:charge) == 2
-    assert Effects.count(:ship) == 1
   end
 
   test "a job for a workflow the store has never seen is cancelled" do

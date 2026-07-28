@@ -137,10 +137,21 @@ defmodule Magma.Run do
         :ok
 
       checkpoint ->
-        case Store.mark_undone(checkpoint) do
-          {:ok, _marked} -> :ok
+        with {:ok, _marked} <- Store.mark_undone(checkpoint),
+             {:ok, workflow} <- Store.get_workflow(workflow_id),
+             {:ok, _unwinding} <- start_unwinding(workflow) do
+          :ok
+        else
           {:error, reason} -> {:error, reason}
         end
     end
+  end
+
+  # The first mark commits the run to rolling back. Every attempt after this one drives the
+  # rollback from the checkpoints rather than replaying forward.
+  defp start_unwinding(%{status: :unwinding} = workflow), do: {:ok, workflow}
+
+  defp start_unwinding(workflow) do
+    Store.update_workflow(workflow, :set_status, %{status: :unwinding})
   end
 end
