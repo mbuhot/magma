@@ -14,6 +14,7 @@ together.
 - [Shape](#shape)
 - [The three decorations](#the-three-decorations)
 - [The replay contract](#the-replay-contract)
+- [Actor and tenant](#actor-and-tenant)
 - [Waiting](#waiting)
 - [Outcomes](#outcomes)
 - [Unwinding](#unwinding)
@@ -76,6 +77,25 @@ split between a body that re-executes and steps that do not lands on Reactor's o
 
 Reactor's DSL is declarative, so the shape of a workflow is fixed at compile time. The
 contract covers the parts that stay dynamic.
+
+## Actor and tenant
+
+```elixir
+Magma.start(MyApp.Checkout, %{order_id: id}, actor: current_user, tenant: org)
+```
+
+Both are snapshotted onto the workflow row as terms, and both are seeded into the reactor
+context on every attempt. `Ash.Reactor` reads `context[:actor]` and `context[:tenant]`
+directly, and a per-step `actor` entity keeps its precedence because it arrives as an
+argument.
+
+An actor is whatever the caller passes: a struct, a map, an id. Keeping the snapshot
+small is the caller's lever — pass the minimum the workflow's steps read. Ash resources
+are one option among several.
+
+The snapshot fixes authority at the moment the workflow starts, so a workflow that waits
+for days authorizes its later steps as the actor stood when it began. [Open
+questions](#open-questions) carries the extension point for changing that.
 
 ## Waiting
 
@@ -158,7 +178,7 @@ which puts the store inside whatever repo, multitenancy and policies the app alr
 
 | Extension | Resource holds |
 |---|---|
-| `Magma.Resource.Workflow` | module, inputs, status, result, error, timestamps |
+| `Magma.Resource.Workflow` | module, inputs, actor, tenant, status, result, error, timestamps |
 | `Magma.Resource.Checkpoint` | workflow, `sequence`, step name, output, error, `undone_at` |
 | `Magma.Resource.Signal` | workflow, name, payload, `consumed_at` |
 | `Magma.Resource.Waiter` | workflow, name, deadline |
@@ -267,3 +287,7 @@ Deferred until the milestone that meets them:
   writes a status and the next resume observes it. The interaction with unwinding is a
   milestone 4 question.
 - **Retention.** Checkpoints accumulate. A pruning story arrives with milestone 5.
+- **Actor rehydration.** The snapshot fixes authority at start time, which suits a
+  workflow measured in minutes. A callback along the lines of `on_rehydrate/1`, run at the
+  top of each attempt, would let an application reload the actor or re-check that it is
+  still entitled. Added when a workflow long enough to need it turns up.
