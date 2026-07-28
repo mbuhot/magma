@@ -60,19 +60,23 @@ defmodule Magma.Run do
   def decorate_step(%Reactor.Step{impl: {Magma.Checkpointed, _options}} = step, _context),
     do: step
 
-  def decorate_step(%Reactor.Step{} = step, context) do
-    reject_unsupported!(step)
+  # A compose asked to support undo records `%{reactor: reactor}` — a live `%Reactor{}`
+  # carrying references, closures and a plan. Nothing stored of it could be replayed into an
+  # undo that works, so the run half of a compose is left uncheckpointed and its nested
+  # reactor re-runs. The extract step beside it carries the composed result.
+  def decorate_step(%Reactor.Step{name: {:compose, _inner}} = step, _context), do: step
 
+  def decorate_step(%Reactor.Step{} = step, _context) do
     %{
       step
       | impl: {Magma.Checkpointed, magma_inner: step.impl, magma_name: step.name},
-        guards: Enum.map(step.guards, &neutralise(&1, step.name, context))
+        guards: Enum.map(step.guards, &neutralise(&1, step.name))
     }
   end
 
   # A recorded step keeps the answer its guards gave the first time, so a `where` reading the
   # clock or the database cannot contradict a decision already acted on.
-  defp neutralise(%Reactor.Guard{} = guard, name, _context) do
+  defp neutralise(%Reactor.Guard{} = guard, name) do
     original = guard.fun
 
     %{
@@ -88,24 +92,6 @@ defmodule Magma.Run do
 
   defp apply_guard({m, f, a}, arguments, context), do: apply(m, f, [arguments, context | a])
   defp apply_guard(fun, arguments, context) when is_function(fun, 2), do: fun.(arguments, context)
-
-  defp reject_unsupported!(%Reactor.Step{impl: {Reactor.Step.Compose, options}} = step) do
-    if options[:support_undo?] do
-      raise """
-      #{inspect(step.name)} composes a reactor with `support_undo?: true`, which magma cannot \
-      checkpoint.
-
-      Asked to support undo, `compose` records `%{reactor: reactor}` — a live `%Reactor{}` \
-      carrying references, closures and a plan. Nothing magma stored of it could be replayed \
-      into an undo that works.
-
-      Compose without undo support, or lift the steps into this reactor so each one \
-      checkpoints on its own.
-      """
-    end
-  end
-
-  defp reject_unsupported!(_step), do: :ok
 
   @doc "What a step recorded on an earlier attempt, if anything."
   @spec recorded(map(), term()) :: {:ok, term()} | :miss

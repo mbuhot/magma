@@ -216,9 +216,11 @@ checkpoint.
 only within its own nested run. Effectful work needing its own checkpoint belongs in the
 outer reactor or under a `map` or `switch`.
 
-**Rejected:** `compose` with `support_undo?: true`. Its recorded value is `%{reactor:
-reactor}` — a live `%Reactor{}` holding refs, closures and a Multigraph plan — because its
-`undo/4` calls `Reactor.undo/2` on it. Decoration fails naming the step and the option.
+**`compose` with undo support:** its run step records `%{reactor: reactor}` — a live
+`%Reactor{}` holding refs, closures and a plan — because its `undo/4` calls `Reactor.undo/2`
+on it. That step is left uncheckpointed and its nested reactor re-runs; the extract step
+beside it carries the composed result. Refusing it outright was wrong, since
+`support_undo?` defaults to `true` and the refusal blocked every ordinary `compose`.
 
 **Supersedes:** an earlier entry claiming all six composites return `{:ok, value, steps}`,
 and that `around` and `group` children needed resolving during a rollback.

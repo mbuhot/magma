@@ -167,6 +167,73 @@ defmodule Magma.Test.Workflows do
     return(:route)
   end
 
+  defmodule Grouped do
+    @moduledoc false
+    use Reactor
+
+    input(:order_id)
+
+    group :batch do
+      before_all(&Magma.Test.Workflows.note_group/3)
+      after_all(&Magma.Test.Workflows.finish_group/1)
+
+      step :inner_one, {Effect, name: :inner_one} do
+        argument(:order_id, input(:order_id))
+      end
+
+      step :inner_two, {Effect, name: :inner_two} do
+        argument(:one, result(:inner_one))
+      end
+
+      return(:inner_two)
+    end
+
+    step :after_group, {Effect, name: :after_group} do
+      argument(:batch, result(:batch))
+    end
+
+    return(:after_group)
+  end
+
+  @doc false
+  def finish_group(results), do: {:ok, results}
+
+  @doc false
+  def note_group(arguments, context, steps) do
+    Effects.record(:group_planned)
+    {:ok, arguments, context, steps}
+  end
+
+  defmodule Inner do
+    @moduledoc false
+    use Reactor
+
+    input(:order_id)
+
+    step :inner_step, {Effect, name: :inner_step} do
+      argument(:order_id, input(:order_id))
+    end
+
+    return(:inner_step)
+  end
+
+  defmodule Composed do
+    @moduledoc false
+    use Reactor
+
+    input(:order_id)
+
+    compose :sub, Magma.Test.Workflows.Inner do
+      argument(:order_id, input(:order_id))
+    end
+
+    step :after_compose, {Effect, name: :after_compose} do
+      argument(:sub, result(:sub))
+    end
+
+    return(:after_compose)
+  end
+
   defmodule Parallel do
     @moduledoc false
     use Reactor
