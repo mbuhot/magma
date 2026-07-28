@@ -17,5 +17,7 @@ if config_env() == :test do
     queues: false,
     plugins: false
 
+  config :magma, domain: Magma.Test.Store, repo: Magma.TestRepo
+
   config :logger, level: :warning
 end
