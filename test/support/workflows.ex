@@ -82,6 +82,38 @@ defmodule Magma.Test.Workflows do
     return(:ship)
   end
 
+  defmodule EndItself do
+    @moduledoc "Ends the workflow row from inside the run, as a losing attempt's rival would."
+    use Reactor.Step
+
+    @impl true
+    def run(_arguments, context, _options) do
+      {:ok, workflow} = Magma.Store.get_workflow(context.magma.workflow_id)
+      {:ok, _failed} = Magma.Store.update_workflow(workflow, :fail, %{error: :underfoot})
+
+      {:ok, :ended}
+    end
+  end
+
+  defmodule EndedUnderfoot do
+    @moduledoc "Halts on a wait after the row has already been ended by something else."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    step :ended, EndItself do
+      wait_for(:quote)
+    end
+
+    await(:confirmation, signal: "confirm", block_ms: 0)
+
+    return(:confirmation)
+  end
+
   defmodule Approval do
     @moduledoc false
     use Reactor, extensions: [Magma.Dsl]
@@ -258,7 +290,9 @@ defmodule Magma.Test.Workflows do
       argument(:transfer_id, input(:transfer_id))
     end
 
-    step :rail, {Magma.Step.Dispatch, workflow: &Magma.Test.Workflows.rail_for/2, block_ms: 50} do
+    dispatch :rail do
+      workflow(&Magma.Test.Workflows.rail_for/2)
+      block_ms(50)
       argument(:transfer_id, input(:transfer_id))
       argument(:currency, input(:currency))
       wait_for(:quote)

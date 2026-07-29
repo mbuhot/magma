@@ -15,9 +15,12 @@ defmodule Magma.Api do
       |> put_if(:id, options[:workflow_id])
       |> put_parent(options[:parent])
 
-    with {:ok, workflow} <- Store.start_workflow(attrs),
-         {:ok, _job} <- enqueue(workflow, options) do
-      {:ok, workflow}
+    # A workflow already under this id is the one the caller asked for, and it has a job of its
+    # own, so it is handed back rather than started a second time.
+    case Store.start_workflow(attrs) do
+      {:ok, workflow} -> with {:ok, _job} <- enqueue(workflow, options), do: {:ok, workflow}
+      {:exists, workflow} -> {:ok, workflow}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -38,13 +41,15 @@ defmodule Magma.Api do
     :ok
   end
 
+  # `Ash.transact` rolls back on an error the function returns, and holds the notifications
+  # raised inside until it has committed.
   def signal(workflow_id, name, payload) do
-    Store.repo().transaction(fn ->
+    :signal
+    |> Store.resource()
+    |> Ash.transact(fn ->
       with {:ok, signal} <- Store.deliver_signal(workflow_id, name, payload),
            :ok <- resume_if_parked(workflow_id, name) do
         signal
-      else
-        {:error, reason} -> Store.repo().rollback(reason)
       end
     end)
     |> case do

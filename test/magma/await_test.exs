@@ -48,6 +48,20 @@ defmodule Magma.AwaitTest do
     assert waiter.kind == :signal
   end
 
+  test "a workflow that has ended is parked on nothing, even if an attempt re-parked it" do
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+    drain()
+
+    {:ok, _signal} = Magma.signal(workflow.id, "confirm", %{approver: "sam"})
+    drain()
+
+    {:ok, _stray} = Store.park(workflow.id, "confirm", :signal, nil)
+    Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow.id}})
+
+    assert reload(workflow).status == :completed
+    assert Store.waiters(workflow.id) == []
+  end
+
   test "a signal wakes a parked workflow and it carries on" do
     {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
     drain()

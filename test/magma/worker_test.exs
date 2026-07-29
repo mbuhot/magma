@@ -16,6 +16,18 @@ defmodule Magma.WorkerTest do
     reloaded
   end
 
+  test "a run that halts does not park a workflow that has already ended" do
+    {:ok, workflow} = Magma.start(Workflows.EndedUnderfoot, %{order_id: "ord_1"})
+
+    assert {:cancel, _reason} =
+             Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow.id}})
+
+    {:ok, current} = Magma.fetch(workflow.id)
+
+    assert current.status == :failed
+    assert Magma.Store.waiters(workflow.id) == []
+  end
+
   test "starting a workflow enqueues the job that will run it" do
     {:ok, workflow} = Magma.start(Workflows.Linear, %{order_id: "ord_1"})
 

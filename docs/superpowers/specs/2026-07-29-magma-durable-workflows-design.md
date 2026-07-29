@@ -629,7 +629,7 @@ suite is built to prove it.
 | 3 | **Waiting** — await, poll, signal, timeout jobs |
 | 4 | **Unwinding** — undo marks, compensate, cancel |
 | 5 | **Polish** — the `magma do end` section, `Magma.Testing`, docs |
-| 6 | **`examples/fasset`** — a standalone app implementing the payout spec |
+| 6 | **`examples/payouts`** — a standalone app implementing the payout spec |
 
 Milestone 2 decides whether the idea holds. The rest is surface.
 
@@ -637,7 +637,7 @@ Milestone 2 decides whether the idea holds. The rest is surface.
 
 Deferred until the milestone that meets them:
 
-- **Child workflows.** Fasset dispatches a rail workflow from the payout spine and waits
+- **Child workflows.** The payout example dispatches a rail workflow from its spine and waits
   on it. `compose` covers the in-process case; a durable child with its own queue and its
   own Oban job is a milestone 6 question.
 - **Recording a skip.** A step a `where` skipped records nothing, so a guard reading the clock

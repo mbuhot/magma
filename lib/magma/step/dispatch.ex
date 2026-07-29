@@ -9,7 +9,9 @@ defmodule Magma.Step.Dispatch do
   running rather than starting a second one. That is what lets the *module* be decided at run
   time — from config, or from an argument — while the child's identity stays stable.
 
-      step :rail, {Magma.Step.Dispatch, workflow: &MyApp.Routing.rail_for/2, queue: :rails} do
+      dispatch :rail do
+        workflow &MyApp.Routing.rail_for/2
+        queue :rails
         argument :transfer, result(:transfer)
       end
 
@@ -64,7 +66,7 @@ defmodule Magma.Step.Dispatch do
            %{},
            %{magma: %Run{workflow_id: parent_id, checkpoints: %{}}, current_step: nil},
            signal: signal,
-           block_ms: Keyword.get(options, :block_ms, 5_000),
+           block_ms: Keyword.get(options, :block_ms),
            timeout: Keyword.get(options, :timeout),
            on_timeout: :error
          ) do

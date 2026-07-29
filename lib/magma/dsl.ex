@@ -17,6 +17,12 @@ defmodule Magma.Dsl do
 
       poll :settlement, every: :timer.seconds(30), until: &Provider.settled?/2
 
+      dispatch :rail do
+        workflow &MyApp.Routing.rail_for/2
+        queue :rails
+        argument :transfer, result(:transfer)
+      end
+
   Every existing Reactor entity keeps its meaning. A reactor written without any of this still
   runs durably, since the decoration happens at run time on the built `%Reactor{}`.
   """
@@ -51,6 +57,10 @@ defmodule Magma.Dsl do
       %Spark.Dsl.Patch.AddEntity{
         section_path: [:reactor],
         entity: Magma.Dsl.Poll.__entity__()
+      },
+      %Spark.Dsl.Patch.AddEntity{
+        section_path: [:reactor],
+        entity: Magma.Dsl.Dispatch.__entity__()
       }
     ]
 end

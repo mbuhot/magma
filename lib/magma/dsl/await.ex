@@ -15,7 +15,7 @@ defmodule Magma.Dsl.Await do
   defstruct __identifier__: nil,
             __spark_metadata__: nil,
             arguments: [],
-            block_ms: 5_000,
+            block_ms: nil,
             description: nil,
             guards: [],
             name: nil,
@@ -25,7 +25,7 @@ defmodule Magma.Dsl.Await do
 
   @type t :: %__MODULE__{
           arguments: [Reactor.Dsl.Argument.t()],
-          block_ms: non_neg_integer(),
+          block_ms: nil | non_neg_integer(),
           description: nil | String.t(),
           guards: [Reactor.Guard.Build.t()],
           name: atom(),
@@ -65,8 +65,9 @@ defmodule Magma.Dsl.Await do
         timeout: [type: :pos_integer, doc: "How long the wait may last, in milliseconds."],
         block_ms: [
           type: :non_neg_integer,
-          default: 5_000,
-          doc: "How long to hold the process before releasing the job."
+          doc:
+            "How long to hold the process before releasing the job. " <>
+              "Defaults to `config :magma, :block_ms`, itself 5000."
         ],
         on_timeout: [
           type: {:in, [:error, :return]},

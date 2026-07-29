@@ -43,7 +43,7 @@ defmodule Magma.Step.Await do
   end
 
   defp block(workflow_id, name, options, deadline) do
-    block_ms = Keyword.get(options, :block_ms, @default_block_ms)
+    block_ms = block_ms(options)
 
     receive do
       {:magma_signal, ^workflow_id, ^name} -> :woken
@@ -83,6 +83,21 @@ defmodule Magma.Step.Await do
         {:ok, _consumed} = Store.consume_signal(signal)
         :ok = Store.release(workflow_id, name)
         {:ok, signal.payload}
+    end
+  end
+
+  @doc """
+  How long a wait holds its process before releasing the job.
+
+  How long a deployment is willing to hold a worker is deployment policy, so a wait that names
+  no window takes the one in config. A test suite sets it to zero and pays nothing for a wait
+  it is about to answer itself.
+  """
+  @spec block_ms(keyword()) :: non_neg_integer()
+  def block_ms(options) do
+    case Keyword.get(options, :block_ms) do
+      nil -> Application.get_env(:magma, :block_ms, @default_block_ms)
+      ms -> ms
     end
   end
 

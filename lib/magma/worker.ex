@@ -11,6 +11,8 @@ defmodule Magma.Worker do
   alias Magma.Run
   alias Magma.Store
 
+  @terminal [:completed, :failed, :cancelled]
+
   @impl true
   def perform(%Oban.Job{args: %{"workflow_id" => workflow_id}}) do
     case Store.get_workflow(workflow_id) do
@@ -20,9 +22,7 @@ defmodule Magma.Worker do
     end
   end
 
-  defp run(%{status: status} = workflow) when status in [:completed, :failed, :cancelled] do
-    {:cancel, "workflow #{workflow.id} already ended as #{status}"}
-  end
+  defp run(%{status: status} = workflow) when status in @terminal, do: already_ended(workflow)
 
   defp run(%{status: :unwinding} = workflow), do: unwind(workflow, :fail)
   defp run(%{status: :cancelling} = workflow), do: unwind(workflow, :cancelled)
@@ -39,6 +39,7 @@ defmodule Magma.Worker do
     case Magma.Unwind.run(workflow) do
       {:ok, _unresolved} ->
         {:ok, _ended} = Store.update_workflow(workflow, ending, %{})
+        :ok = Store.release_all(workflow.id)
         :ok
 
       {:error, errors} ->
@@ -47,29 +48,58 @@ defmodule Magma.Worker do
   end
 
   defp outcome({:ok, result}, workflow) do
-    {:ok, completed} = Store.update_workflow(workflow, :complete, %{result: result})
-    :ok = Magma.Api.report_to_parent(completed, {:ok, result})
-    :ok
+    case reload(workflow) do
+      {:ended, ended} -> already_ended(ended)
+      {:ok, current} -> complete(current, result)
+    end
   end
 
   # A halted run has already written what it is parked on, so the worker reads that from
   # committed state rather than from the halt.
   defp outcome({:halted, _reactor}, workflow) do
-    case Store.waiters(workflow.id) do
-      [] ->
-        {:ok, _waiting} = Store.update_workflow(workflow, :set_status, %{status: :waiting})
-        :ok
-
-      waiters ->
-        park(workflow, waiters)
+    case reload(workflow) do
+      {:ended, ended} -> already_ended(ended)
+      {:ok, current} -> park(current, Store.waiters(current.id))
     end
   end
 
   defp outcome({:error, error}, workflow) do
-    {:ok, current} = Store.get_workflow(workflow.id)
-    {:ok, failed} = Store.update_workflow(current, :fail, %{error: error})
+    case reload(workflow) do
+      {:ended, ended} -> already_ended(ended)
+      {:ok, current} -> fail(current, error)
+    end
+  end
+
+  defp complete(workflow, result) do
+    {:ok, completed} = Store.update_workflow(workflow, :complete, %{result: result})
+    :ok = Store.release_all(completed.id)
+    :ok = Magma.Api.report_to_parent(completed, {:ok, result})
+    :ok
+  end
+
+  defp fail(workflow, error) do
+    {:ok, failed} = Store.update_workflow(workflow, :fail, %{error: error})
+    :ok = Store.release_all(failed.id)
     :ok = Magma.Api.report_to_parent(failed, {:error, error})
     {:cancel, error}
+  end
+
+  # An ending stands. A workflow that has already had its say is not moved by an attempt of it
+  # that was still running, so a halt cannot park a run that another attempt has failed.
+  defp reload(workflow) do
+    case Store.get_workflow(workflow.id) do
+      {:ok, %{status: status} = current} when status in @terminal -> {:ended, current}
+      {:ok, nil} -> {:ended, workflow}
+      {:ok, current} -> {:ok, current}
+      {:error, _reason} -> {:ok, workflow}
+    end
+  end
+
+  # An attempt that lost a race can leave the workflow parked on a signal another attempt has
+  # already taken, so an ended workflow clears whatever it is holding on its way out.
+  defp already_ended(%{id: id, status: status}) do
+    :ok = Store.release_all(id)
+    {:cancel, "workflow #{id} already ended as #{status}"}
   end
 
   defp park(workflow, waiters) do

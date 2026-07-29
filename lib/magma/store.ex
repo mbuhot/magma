@@ -72,14 +72,42 @@ defmodule Magma.Store do
     end
   end
 
-  @doc "Records a workflow about to run."
-  @spec start_workflow(map()) :: {:ok, Ash.Resource.record()} | {:error, term()}
+  @doc """
+  Records a workflow about to run.
+
+  Answers `{:exists, workflow}` when the id is already taken, so a caller that derives an id
+  can ask for the same workflow twice — or twice at once — and be given the one that is
+  already running. The primary key is what settles the race, rather than a read beforehand.
+  """
+  @spec start_workflow(map()) ::
+          {:ok, Ash.Resource.record()} | {:exists, Ash.Resource.record()} | {:error, term()}
   def start_workflow(attrs) do
     :workflow
     |> resource()
     |> Ash.Changeset.for_create(:start, attrs)
     |> Ash.create(authorize?: false)
+    |> case do
+      {:ok, workflow} -> {:ok, workflow}
+      {:error, error} -> already_started(error, attrs[:id])
+    end
   end
+
+  defp already_started(error, nil), do: {:error, error}
+
+  defp already_started(error, id) do
+    with true <- id_taken?(error),
+         {:ok, workflow} when not is_nil(workflow) <- get_workflow(id) do
+      {:exists, workflow}
+    else
+      _otherwise -> {:error, error}
+    end
+  end
+
+  defp id_taken?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidAttribute{field: :id}, &1))
+  end
+
+  defp id_taken?(_error), do: false
 
   @doc "One workflow by id."
   @spec get_workflow(String.t()) :: {:ok, Ash.Resource.record() | nil} | {:error, term()}
@@ -242,6 +270,21 @@ defmodule Magma.Store do
     workflow_id
     |> waiters()
     |> Enum.filter(&(&1.name == name))
+    |> Enum.each(&Ash.destroy!(&1, authorize?: false))
+
+    :ok
+  end
+
+  @doc """
+  Clears every wait a workflow holds.
+
+  A workflow that has ended is parked on nothing. Two attempts racing can leave one of them
+  parking on a signal the other has already taken, and this is what takes that back.
+  """
+  @spec release_all(String.t()) :: :ok
+  def release_all(workflow_id) do
+    workflow_id
+    |> waiters()
     |> Enum.each(&Ash.destroy!(&1, authorize?: false))
 
     :ok

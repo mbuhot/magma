@@ -42,6 +42,33 @@ defmodule Magma.DispatchTest do
     assert Effects.count(:quote) == 1
   end
 
+  test "asking for the same workflow twice is answered with the one already running" do
+    id = Magma.child_id("019faae3-0000-7000-8000-000000000000", :twice)
+
+    {:ok, first} = Magma.start(Workflows.Approval, %{order_id: "ord_1"}, workflow_id: id)
+    {:ok, second} = Magma.start(Workflows.Approval, %{order_id: "ord_2"}, workflow_id: id)
+
+    assert first.id == second.id
+    assert second.inputs == %{order_id: "ord_1"}
+    assert length(all_enqueued(worker: Magma.Worker)) == 1
+  end
+
+  test "two spines racing to dispatch the same child start one of it" do
+    id = Magma.child_id("019faae3-0000-7000-8000-000000000000", :raced)
+
+    started =
+      for _each <- 1..2 do
+        Task.async(fn ->
+          Ecto.Adapters.SQL.Sandbox.allow(Magma.TestRepo, self(), self())
+          Magma.start(Workflows.Approval, %{order_id: "ord_1"}, workflow_id: id)
+        end)
+      end
+      |> Task.await_many(5_000)
+
+    assert [{:ok, one}, {:ok, two}] = started
+    assert one.id == two.id
+  end
+
   test "the spine names no rail, so changing the routing changes which one runs" do
     defmodule OtherRail do
       @moduledoc false

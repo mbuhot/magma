@@ -55,7 +55,9 @@ defmodule MyApp.Checkout do
     argument :amount, result(:order, [:total])
   end
 
-  await :confirmation, signal: "confirm", timeout: :timer.hours(48) do
+  await :confirmation do
+    signal "confirm"
+    timeout :timer.hours(48)
     argument :quote, result(:quote)
   end
 
