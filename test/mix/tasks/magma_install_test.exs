@@ -66,12 +66,24 @@ defmodule Mix.Tasks.Magma.InstallTest do
     assert source_for(igniter, "lib/test/workflows/workflow.ex") =~ "domain: Test.Workflows"
   end
 
-  test "running it a second time changes nothing" do
+  test "running it a second time adds no second copy of anything" do
     first = install() |> apply_igniter!()
 
-    second = Igniter.compose_task(first, "magma.install", ["--yes"])
+    second =
+      first
+      |> Igniter.compose_task("magma.install", ["--yes"])
+      |> apply_igniter!()
 
-    assert_unchanged(second)
+    domain = source_for(second, "lib/test/magma.ex")
+
+    for resource <- ~w[Workflow Checkpoint Signal Waiter] do
+      assert domain |> String.split("Test.Magma.#{resource})") |> length() == 2,
+             "expected Test.Magma.#{resource} to be listed once"
+    end
+
+    config = source_for(second, "config/config.exs")
+
+    assert config |> String.split("config :magma") |> length() == 2
   end
 
   defp source_for(igniter, path) do

@@ -342,3 +342,19 @@ in the way.
 
 **Costs:** work in a `map` or `switch` branch is not taken back. Materialising those children
 by driving their parent is the fix, and it is still to come.
+
+---
+
+## 23. A rollback claims a checkpoint before undoing it
+
+`Magma.Unwind` marks `undone_at` conditionally, on the row still being unmarked, before
+calling `undo/4`. A claim it loses means another rollback has that step. A failed undo gives
+the claim back, so the checkpoint still stands.
+
+**Why:** two jobs for one workflow can run at once — a signal resume and a child-completion
+resume, say. Both read the same standing rows and both called `undo/4`, so a ledger was
+credited twice. Forward progress had the unique index for this. Rollback had nothing.
+
+**Costs:** a crash between the claim and the undo leaves a step marked that was never taken
+back. The mark is the progress log, so that step is treated as done and its work stands. A
+claim carrying a lease, rather than a plain mark, is what would close it.

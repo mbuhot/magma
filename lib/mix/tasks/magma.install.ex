@@ -37,11 +37,13 @@ if Code.ensure_loaded?(Igniter) do
       domain = domain_module(igniter, opts)
       workflow = Module.concat(domain, Workflow)
 
+      {existing?, igniter} = Igniter.Project.Module.module_exists(igniter, domain)
+
       igniter
       |> Igniter.Project.Formatter.import_dep(:ash_postgres)
       |> create_resources(domain, workflow, repo)
       |> create_domain(domain)
-      |> reference_resources(domain)
+      |> reference_resources(domain, existing?)
       |> configure(domain, repo)
       |> Ash.Igniter.codegen("add_magma_resources")
     end
@@ -57,10 +59,13 @@ if Code.ensure_loaded?(Igniter) do
       Enum.reduce(@roles, igniter, fn {name, extension, table}, igniter ->
         module = Module.concat(domain, name)
 
-        Igniter.Project.Module.create_module(
+        # Find-or-create, so running the installer again leaves a resource you have since
+        # edited exactly as it is.
+        Igniter.Project.Module.find_and_update_or_create_module(
           igniter,
           module,
-          resource_body(domain, extension, table, repo, workflow, module == workflow)
+          resource_body(domain, extension, table, repo, workflow, module == workflow),
+          fn zipper -> {:ok, zipper} end
         )
       end)
     end
@@ -102,7 +107,11 @@ if Code.ensure_loaded?(Igniter) do
       )
     end
 
-    defp reference_resources(igniter, domain) do
+    # A domain that was already here has its own resource list, and adding to it again would
+    # only repeat what is in it.
+    defp reference_resources(igniter, _domain, true), do: igniter
+
+    defp reference_resources(igniter, domain, false) do
       Enum.reduce(@roles, igniter, fn {name, _extension, _table}, igniter ->
         Ash.Domain.Igniter.add_resource_reference(igniter, domain, Module.concat(domain, name))
       end)
