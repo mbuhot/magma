@@ -311,6 +311,27 @@ defmodule Magma.Test.Workflows do
     return(:quote)
   end
 
+  defmodule Gated do
+    @moduledoc false
+    use Reactor
+
+    input(:order_id)
+
+    step :gated, {Effect, name: :gated} do
+      argument(:order_id, input(:order_id))
+      where(&Magma.Test.Workflows.gate_open?/2)
+    end
+
+    step :after, {Effect, name: :after_gate} do
+      wait_for(:gated)
+    end
+
+    return(:after)
+  end
+
+  @doc false
+  def gate_open?(_arguments, _context), do: Application.get_env(:magma, :test_gate, true)
+
   defmodule Parallel do
     @moduledoc false
     use Reactor

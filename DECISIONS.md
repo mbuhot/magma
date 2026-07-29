@@ -151,9 +151,12 @@ silently un-undoable.
 So replay comes back through the impl wrapper, which makes the step an ordinary success: it
 lands on the undo stack, stores an intermediate result, and unwinds with everything else.
 
-The user's own guards are **rewritten** rather than prepended to. An output on record forces
-them to `:cont`; a skip on record forces `{:halt, recorded}`, reproducing the original skip
-and correctly keeping it off the stack.
+The user's own guards are **rewritten** rather than prepended to: a step with a recorded
+output forces them to `:cont`, so nothing can skip a step whose effect already happened.
+
+A step a `where` skipped records nothing, so a guard that answers differently on a later
+attempt lets the step run. No effect is repeated by that — there was none to repeat — but the
+run diverges from the one before it. Recording skips would close it, and nothing does yet.
 
 **Supersedes:** an earlier design that prepended a checkpoint guard.
 

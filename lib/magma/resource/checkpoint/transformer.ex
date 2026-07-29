@@ -3,6 +3,8 @@ defmodule Magma.Resource.Checkpoint.Transformer do
 
   use Spark.Dsl.Transformer
 
+  require Ash.Expr
+
   alias Ash.Resource.Builder
   alias Magma.Resource.Common
   alias Magma.Type.Term
@@ -32,6 +34,16 @@ defmodule Magma.Resource.Checkpoint.Transformer do
       accept: [],
       require_atomic?: false,
       changes: [Common.set(:undone_at, &DateTime.utc_now/0)]
+    )
+    |> Builder.add_new_action(:update, :claim_undo,
+      accept: [],
+      require_atomic?: false,
+      changes: [Common.set(:undone_at, &DateTime.utc_now/0)]
+    )
+    |> Builder.add_new_action(:update, :release_undo,
+      accept: [],
+      require_atomic?: false,
+      changes: [Common.set(:undone_at, nil)]
     )
   end
 end

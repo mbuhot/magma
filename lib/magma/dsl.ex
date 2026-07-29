@@ -9,7 +9,9 @@ defmodule Magma.Dsl do
         max_attempts 20
       end
 
-      await :confirmation, signal: "confirm", timeout: :timer.hours(48) do
+      await :confirmation do
+        signal "confirm"
+        timeout :timer.hours(48)
         argument :quote, result(:quote)
       end
 

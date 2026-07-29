@@ -108,6 +108,55 @@ defmodule Magma.UnwindTest do
     assert Effects.count({:undo, :ship}) == 1
   end
 
+  test "two rollbacks racing over one workflow take each step back once" do
+    {:ok, workflow} = Magma.start(Workflows.Undoable, %{order_id: "ord_1"})
+    drain()
+
+    loaded = reload(workflow)
+
+    [one, two] =
+      for _each <- 1..2 do
+        Task.async(fn ->
+          Ecto.Adapters.SQL.Sandbox.allow(Magma.TestRepo, self(), self())
+          Magma.Unwind.run(loaded)
+        end)
+      end
+      |> Task.await_many(5_000)
+
+    assert {:ok, _} = one
+    assert {:ok, _} = two
+
+    assert Effects.count({:undo, :ship}) == 1
+    assert Effects.count({:undo, :charge}) == 1
+    assert Effects.count({:undo, :quote}) == 1
+    assert Store.standing(workflow.id) == []
+  end
+
+  test "a checkpoint claimed by one rollback is left alone by another" do
+    {:ok, workflow} = Magma.start(Workflows.Undoable, %{order_id: "ord_1"})
+    drain()
+
+    [newest | _rest] = Store.standing(workflow.id)
+
+    assert {:ok, claimed} = Store.claim_undo(newest)
+    assert :taken = Store.claim_undo(claimed)
+  end
+
+  test "a checkpoint whose undo failed is left standing for another attempt" do
+    {:ok, workflow} = Magma.start(Workflows.Undoable, %{order_id: "ord_1"})
+    drain()
+
+    Effects.fail_undo(:charge)
+    {:error, _errors} = Magma.Unwind.run(reload(workflow))
+
+    labels = workflow.id |> Store.standing() |> Enum.map(& &1.step_label)
+    assert ":charge" in labels
+
+    Effects.reset()
+    assert {:ok, []} = Magma.Unwind.run(reload(workflow))
+    assert Effects.count({:undo, :charge}) == 1
+  end
+
   test "cancelling a workflow the store has never seen reports it" do
     assert {:error, :no_such_workflow} = Magma.cancel("019faae3-0000-7000-8000-000000000000")
   end

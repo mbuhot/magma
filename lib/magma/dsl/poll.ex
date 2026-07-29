@@ -2,7 +2,9 @@ defmodule Magma.Dsl.Poll do
   @moduledoc """
   The `poll` entity: a step that checks a condition on an interval until it holds.
 
-      poll :settlement, every: :timer.seconds(30), until: &Provider.settled?/2 do
+      poll :settlement do
+        every :timer.seconds(30)
+        until &Provider.settled?/2
         argument :transfer, result(:transfer)
       end
 
@@ -44,6 +46,7 @@ defmodule Magma.Dsl.Poll do
       args: [:name],
       identifier: :name,
       imports: [Reactor.Dsl.Argument],
+      recursive_as: :steps,
       entities: [
         arguments: [Reactor.Dsl.Argument.__entity__(), Reactor.Dsl.WaitFor.__entity__()],
         guards: [Reactor.Dsl.Where.__entity__(), Reactor.Dsl.Guard.__entity__()]

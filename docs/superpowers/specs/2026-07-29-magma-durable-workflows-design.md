@@ -132,7 +132,7 @@ Alongside them comes a contract over constructs that already exist:
 | Step outputs | survive a `term_to_binary` round trip |
 | Step names | are durable identifiers, stable across deploys |
 | `map` sources | are stably ordered |
-| `where` guards | keep the answer they gave the first time |
+| `where` guards | are not consulted for a step whose output is recorded |
 
 That last row is the one deliberate change in evaluation, and it surfaces on replay
 alone. A guard reading the clock or the database gave an answer that has already been
@@ -206,7 +206,6 @@ every attempt, and the plan position, impl module and arguments are all free to 
 | Record for this step | Guards | Impl | The executor sees |
 |---|---|---|---|
 | an output | forced to `:cont` | returns the recorded value | an ordinary success |
-| a skip | forced to `{:halt, recorded}` | never called | `{:skip, …}` |
 | none | the user's own answer | the inner impl runs, and its output is written | whatever happened |
 
 ### Why replay returns through the impl
@@ -229,10 +228,12 @@ So a replayed value comes back **through the impl**, which makes the step an ord
 success: it lands on the undo stack, it stores an intermediate result, and a failure later
 in the run unwinds it like any other completed work.
 
-Neutralising the user's guards is what protects that. With an output on record they are
-forced to `:cont`, so nothing skips a step whose effect has already happened. With a skip
-on record they are forced to `{:halt, recorded}`, which reproduces the original skip and
-correctly keeps it off the undo stack.
+Neutralising the user's guards is what protects that: with an output on record they are
+forced to `:cont`, so nothing skips a step whose effect has already happened.
+
+A skipped step records nothing, so a guard answering differently on a later attempt lets the
+step run. Nothing is repeated by that, since nothing happened the first time, but the run
+diverges. Recording skips would close it, and that is [an open question](#open-questions).
 
 ### The wrapper's other jobs
 
@@ -245,10 +246,8 @@ correctly keeps it off the undo stack.
 
 ### Middleware
 
-Writes skip records from `{:guard_fail, guard, result}`, and carries workflow lifecycle
-and telemetry. Its `event/3` returns `:ok` and can only observe, which is why the
-checkpoint write lives in the impl where a failure can fail the step. A lost skip record
-costs one re-evaluation of a guard.
+Carries workflow lifecycle and telemetry. Its `event/3` returns `:ok` and can only observe,
+which is why the checkpoint write lives in the impl, where a failure can fail the step.
 
 ### Composite steps come in two shapes
 
@@ -641,7 +640,10 @@ Deferred until the milestone that meets them:
 - **Child workflows.** Fasset dispatches a rail workflow from the payout spine and waits
   on it. `compose` covers the in-process case; a durable child with its own queue and its
   own Oban job is a milestone 6 question.
-- **Retention.** Checkpoints accumulate. A pruning story arrives with milestone 5.
+- **Recording a skip.** A step a `where` skipped records nothing, so a guard reading the clock
+  or the database can answer differently on a later attempt and let the step run. Writing a
+  skip row from the middleware's `{:guard_fail, guard, result}` event and replaying it would
+  close that, and nothing does yet.
 - **Checkpointing inside a nesting composite.** `group`, `around`, `recurse` and `compose`
   run a private reactor, so their children hold no checkpoints and re-run together. Passing
   the decoration down into the nested reactor would fix it — the nested run has a context,

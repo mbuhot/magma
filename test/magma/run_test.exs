@@ -94,6 +94,34 @@ defmodule Magma.RunTest do
     assert quote_step.output == {:quote, %{order_id: "ord_42"}}
   end
 
+  test "a step with a recorded output is not re-judged by its own guard" do
+    Effects.reset()
+    Application.put_env(:magma, :test_gate, true)
+    on_exit(fn -> Application.delete_env(:magma, :test_gate) end)
+
+    workflow = start(Workflows.Gated)
+    {:ok, _first} = Run.run(workflow)
+
+    assert Effects.count(:gated) == 1
+
+    Application.put_env(:magma, :test_gate, false)
+    {:ok, _second} = Run.run(workflow)
+
+    assert Effects.count(:gated) == 1
+    assert ":gated" in labels(workflow)
+  end
+
+  test "a step its guard skipped records nothing" do
+    Application.put_env(:magma, :test_gate, false)
+    on_exit(fn -> Application.delete_env(:magma, :test_gate) end)
+
+    workflow = start(Workflows.Gated)
+    {:ok, _result} = Run.run(workflow)
+
+    assert Effects.count(:gated) == 0
+    refute ":gated" in labels(workflow)
+  end
+
   test "two workflows of the same module keep their checkpoints apart" do
     one = start(Workflows.Linear, %{order_id: "ord_a"})
     two = start(Workflows.Linear, %{order_id: "ord_b"})

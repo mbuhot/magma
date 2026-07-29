@@ -1,4 +1,5 @@
 defmodule Magma.Store do
+  require Ash.Expr
   require Ash.Query
 
   @moduledoc """
@@ -132,6 +133,35 @@ defmodule Magma.Store do
       output: output
     })
     |> Ash.create(authorize?: false)
+  end
+
+  @doc """
+  Claims a checkpoint for undoing, if nothing else already has it.
+
+  The mark goes on before the undo runs, conditional on it still being absent, so two
+  rollbacks racing over one workflow cannot both take the same step back. Forward progress has
+  the unique index for this; a rollback has the claim.
+  """
+  @spec claim_undo(Ash.Resource.record()) :: {:ok, Ash.Resource.record()} | :taken
+  def claim_undo(checkpoint) do
+    checkpoint
+    |> Ash.Changeset.for_update(:claim_undo, %{})
+    |> Ash.Changeset.filter(Ash.Expr.expr(is_nil(undone_at)))
+    |> Ash.update(authorize?: false)
+    |> case do
+      {:ok, claimed} -> {:ok, claimed}
+      {:error, _stale} -> :taken
+    end
+  end
+
+  @doc "Gives a claim back, so a checkpoint whose undo failed still stands."
+  @spec release_undo(Ash.Resource.record()) :: :ok
+  def release_undo(checkpoint) do
+    checkpoint
+    |> Ash.Changeset.for_update(:release_undo, %{})
+    |> Ash.update(authorize?: false)
+
+    :ok
   end
 
   @doc "Marks a checkpoint as taken back."

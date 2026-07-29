@@ -83,29 +83,39 @@ defmodule Magma.Unwind do
   # everything already sent.
   defp undo(step, checkpoint, results, inputs, context) do
     if Reactor.Step.can?(step, :undo) do
-      drive(step, checkpoint, arguments(step, results, inputs), context, 0)
+      drive(step, checkpoint, arguments(step, results, inputs), context)
     else
       []
     end
   end
 
-  defp drive(step, _checkpoint, _arguments, _context, @max_undo_count) do
+  defp drive(step, checkpoint, arguments, context) do
+    # Claim before undoing. Two rollbacks racing over one workflow would otherwise both read
+    # the same standing row and both call undo/4, taking the work back twice.
+    case Store.claim_undo(checkpoint) do
+      {:ok, claimed} -> run_undo(step, claimed, arguments, context, 0)
+      :taken -> []
+    end
+  end
+
+  defp run_undo(step, checkpoint, _arguments, _context, @max_undo_count) do
+    :ok = Store.release_undo(checkpoint)
     [{:undo_retries_exceeded, step.name}]
   end
 
-  defp drive(step, checkpoint, arguments, context, attempt) do
+  defp run_undo(step, checkpoint, arguments, context, attempt) do
     case Reactor.Step.undo(step, checkpoint.output, arguments, put_step(context, step)) do
       :ok ->
-        {:ok, _marked} = Store.mark_undone(checkpoint)
         []
 
       :retry ->
-        drive(step, checkpoint, arguments, context, attempt + 1)
+        run_undo(step, checkpoint, arguments, context, attempt + 1)
 
       {:retry, _reason} ->
-        drive(step, checkpoint, arguments, context, attempt + 1)
+        run_undo(step, checkpoint, arguments, context, attempt + 1)
 
       {:error, reason} ->
+        :ok = Store.release_undo(checkpoint)
         [{:undo_failed, step.name, reason}]
     end
   end

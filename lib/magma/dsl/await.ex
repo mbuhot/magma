@@ -2,7 +2,9 @@ defmodule Magma.Dsl.Await do
   @moduledoc """
   The `await` entity: a step that waits for a signal.
 
-      await :confirmation, signal: "confirm", timeout: :timer.hours(48) do
+      await :confirmation do
+        signal "confirm"
+        timeout :timer.hours(48)
         argument :quote, result(:quote)
       end
 
@@ -48,6 +50,7 @@ defmodule Magma.Dsl.Await do
       args: [:name],
       identifier: :name,
       imports: [Reactor.Dsl.Argument],
+      recursive_as: :steps,
       entities: [
         arguments: [Reactor.Dsl.Argument.__entity__(), Reactor.Dsl.WaitFor.__entity__()],
         guards: [Reactor.Dsl.Where.__entity__(), Reactor.Dsl.Guard.__entity__()]
