@@ -53,20 +53,14 @@ defmodule Magma.DispatchTest do
     assert length(all_enqueued(worker: Magma.Worker)) == 1
   end
 
-  test "two spines racing to dispatch the same child start one of it" do
+  test "a second caller inserting the same workflow at the same moment is refused" do
     id = Magma.child_id("019faae3-0000-7000-8000-000000000000", :raced)
+    attrs = %{id: id, module: Workflows.Approval, inputs: %{order_id: "ord_1"}}
 
-    started =
-      for _each <- 1..2 do
-        Task.async(fn ->
-          Ecto.Adapters.SQL.Sandbox.allow(Magma.TestRepo, self(), self())
-          Magma.start(Workflows.Approval, %{order_id: "ord_1"}, workflow_id: id)
-        end)
-      end
-      |> Task.await_many(5_000)
+    {:ok, _first} = Magma.Store.start_workflow(attrs)
 
-    assert [{:ok, one}, {:ok, two}] = started
-    assert one.id == two.id
+    assert {:error, error} = Magma.Store.start_workflow(attrs)
+    assert Exception.message(error) =~ "already been taken"
   end
 
   test "the spine names no rail, so changing the routing changes which one runs" do

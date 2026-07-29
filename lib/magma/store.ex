@@ -75,39 +75,17 @@ defmodule Magma.Store do
   @doc """
   Records a workflow about to run.
 
-  Answers `{:exists, workflow}` when the id is already taken, so a caller that derives an id
-  can ask for the same workflow twice — or twice at once — and be given the one that is
-  already running. The primary key is what settles the race, rather than a read beforehand.
+  Fails when the id is already taken. A caller that derives an id asks for the workflow first
+  and starts one only if there is none, so reaching a collision here means two callers raced
+  for the same logical workflow — one of them wins and the other is told so.
   """
-  @spec start_workflow(map()) ::
-          {:ok, Ash.Resource.record()} | {:exists, Ash.Resource.record()} | {:error, term()}
+  @spec start_workflow(map()) :: {:ok, Ash.Resource.record()} | {:error, term()}
   def start_workflow(attrs) do
     :workflow
     |> resource()
     |> Ash.Changeset.for_create(:start, attrs)
     |> Ash.create(authorize?: false)
-    |> case do
-      {:ok, workflow} -> {:ok, workflow}
-      {:error, error} -> already_started(error, attrs[:id])
-    end
   end
-
-  defp already_started(error, nil), do: {:error, error}
-
-  defp already_started(error, id) do
-    with true <- id_taken?(error),
-         {:ok, workflow} when not is_nil(workflow) <- get_workflow(id) do
-      {:exists, workflow}
-    else
-      _otherwise -> {:error, error}
-    end
-  end
-
-  defp id_taken?(%Ash.Error.Invalid{errors: errors}) do
-    Enum.any?(errors, &match?(%Ash.Error.Changes.InvalidAttribute{field: :id}, &1))
-  end
-
-  defp id_taken?(_error), do: false
 
   @doc "One workflow by id."
   @spec get_workflow(String.t()) :: {:ok, Ash.Resource.record() | nil} | {:error, term()}

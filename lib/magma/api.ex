@@ -15,13 +15,39 @@ defmodule Magma.Api do
       |> put_if(:id, options[:workflow_id])
       |> put_parent(options[:parent])
 
-    # A workflow already under this id is the one the caller asked for, and it has a job of its
-    # own, so it is handed back rather than started a second time.
-    case Store.start_workflow(attrs) do
-      {:ok, workflow} -> with {:ok, _job} <- enqueue(workflow, options), do: {:ok, workflow}
-      {:exists, workflow} -> {:ok, workflow}
-      {:error, reason} -> {:error, reason}
+    case running(attrs[:id]) do
+      {:ok, workflow} -> {:ok, workflow}
+      :none -> insert(attrs, options)
     end
+  end
+
+  # A workflow already under this id is the one the caller asked for, and it has a job of its
+  # own, so it is handed back rather than started a second time. Asked before inserting rather
+  # than after colliding, because a caller inside a transaction of its own would have that
+  # transaction aborted by the collision, leaving no read to adopt with.
+  defp running(nil), do: :none
+
+  defp running(id) do
+    case Store.get_workflow(id) do
+      {:ok, workflow} when not is_nil(workflow) -> {:ok, workflow}
+      _otherwise -> :none
+    end
+  end
+
+  # The row and the job that runs it commit together, so a crash on the starting side cannot
+  # leave a workflow that nothing will ever pick up.
+  # Two callers can still reach this at the same moment, and the primary key settles it. The
+  # loser is told, rather than handed the winner's row: its transaction has done work on the
+  # assumption that it was the one starting this workflow, and that assumption was wrong.
+  defp insert(attrs, options) do
+    :workflow
+    |> Store.resource()
+    |> Ash.transact(fn ->
+      with {:ok, workflow} <- Store.start_workflow(attrs),
+           {:ok, _job} <- enqueue(workflow, options) do
+        workflow
+      end
+    end)
   end
 
   defp put_if(attrs, _key, nil), do: attrs
