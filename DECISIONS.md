@@ -311,3 +311,31 @@ by the same mechanism a webhook uses. A child that fails fails its parent.
 
 **Costs:** a workflow row is a UUIDv7, so the digest sets the version and variant bits to
 stay a well-formed one.
+
+---
+
+## 21. A step with no undo is skipped, not raised at
+
+`Magma.Unwind` checks `Reactor.Step.can?(step, :undo)` and leaves the checkpoint standing when
+the answer is no.
+
+**Why:** Reactor's executor never put such a step on its undo stack either. Calling `undo/4`
+on a step that does not implement it raised.
+
+**What it enables:** a workflow carried forward rather than reversed. An onboarding a provider
+has partly decided is the thing a resumed run needs, and tearing the account down would cost
+the customer every document already sent. Declaring no `undo/4` is how a workflow says so.
+
+---
+
+## 22. An unresolvable checkpoint is reported, not raised
+
+A checkpoint whose step `Magma.Unwind` cannot resolve — a child an inlining composite
+generated at run time — is logged and left standing, and the rollback finishes without it.
+
+**Why:** returning it as an error held a rollback open that had otherwise finished, leaving
+the workflow stuck in `cancelling` forever. What is still out there belongs on the record, not
+in the way.
+
+**Costs:** work in a `map` or `switch` branch is not taken back. Materialising those children
+by driving their parent is the fix, and it is still to come.

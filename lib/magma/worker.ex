@@ -37,7 +37,7 @@ defmodule Magma.Worker do
   # ends the workflow once nothing is left standing.
   defp unwind(workflow, ending) do
     case Magma.Unwind.run(workflow) do
-      {:ok, []} ->
+      {:ok, _unresolved} ->
         {:ok, _ended} = Store.update_workflow(workflow, ending, %{})
         :ok
 

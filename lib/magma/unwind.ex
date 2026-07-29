@@ -14,6 +14,8 @@ defmodule Magma.Unwind do
   standing checkpoints as they were, and the next attempt carries on from exactly there.
   """
 
+  require Logger
+
   alias Magma.Key
   alias Magma.Store
 
@@ -22,10 +24,12 @@ defmodule Magma.Unwind do
   @doc """
   Takes back every checkpoint a workflow still has, newest first.
 
-  Returns the errors it collected. A failed undo leaves its checkpoint standing, so what is
-  still out there stays on the record.
+  A failed undo is an error and leaves its checkpoint standing, so what is still out there
+  stays on the record. A checkpoint whose step cannot be resolved — a child an inlining
+  composite generated at run time — is reported rather than raised, and also left standing: it
+  should not hold a rollback open that has otherwise finished.
   """
-  @spec run(Ash.Resource.record()) :: {:ok, []} | {:error, [term()]}
+  @spec run(Ash.Resource.record()) :: {:ok, [term()]} | {:error, [term()]}
   def run(workflow) do
     steps = resolvable_steps(workflow)
     standing = Store.standing(workflow.id)
@@ -37,14 +41,29 @@ defmodule Magma.Unwind do
       magma: %Magma.Run{workflow_id: workflow.id, checkpoints: %{}}
     }
 
-    errors =
+    {unresolved, errors} =
       standing
       |> Enum.flat_map(&undo_checkpoint(&1, steps, results, workflow.inputs || %{}, context))
+      |> Enum.split_with(&match?({:unresolved, _label}, &1))
+
+    report(workflow, unresolved)
 
     case errors do
-      [] -> {:ok, []}
+      [] -> {:ok, unresolved}
       errors -> {:error, errors}
     end
+  end
+
+  defp report(_workflow, []), do: :ok
+
+  defp report(workflow, unresolved) do
+    labels = Enum.map_join(unresolved, ", ", fn {:unresolved, label} -> label end)
+
+    Logger.warning("""
+    magma could not resolve #{length(unresolved)} checkpoint(s) while unwinding     #{workflow.id}, and has left them standing: #{labels}
+
+    These belong to steps an inlining composite generated at run time. Their work has not been     taken back.
+    """)
   end
 
   defp undo_checkpoint(checkpoint, steps, results, inputs, context) do
@@ -53,8 +72,20 @@ defmodule Magma.Unwind do
         [{:unresolved, checkpoint.step_label}]
 
       {:ok, step} ->
-        arguments = arguments(step, results, inputs)
-        drive(step, checkpoint, arguments, context, 0)
+        undo(step, checkpoint, results, inputs, context)
+    end
+  end
+
+  # A step with no undo was never on Reactor's stack either. Its effect stands, and its
+  # checkpoint stands with it, so what is still out there stays on the record. This is what a
+  # workflow carried forward rather than reversed relies on — an onboarding part-decided by a
+  # provider is the thing a resumed run needs, and tearing it down would cost the customer
+  # everything already sent.
+  defp undo(step, checkpoint, results, inputs, context) do
+    if Reactor.Step.can?(step, :undo) do
+      drive(step, checkpoint, arguments(step, results, inputs), context, 0)
+    else
+      []
     end
   end
 
