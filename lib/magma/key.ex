@@ -1,16 +1,16 @@
 defmodule Magma.Key do
-  @moduledoc """
-  How a step is identified across attempts.
+  @moduledoc false
 
-  A step's identity is its name, and `%Reactor.Step{name: any}` means that name is an
-  arbitrary term — an atom for a declared step, a tuple like
-  `{Reactor.Step.Map, outer, inner, index}` for one a composite generated.
-
-  The key is a digest of the name's canonical encoding, which gives a fixed width for a term
-  of unbounded size. `:deterministic` is what makes it canonical: the default encoding varies
-  through atom cache references and map key ordering, and would otherwise hash one name two
-  ways across attempts.
-  """
+  # How a step is identified across attempts.
+  #
+  # A step's identity is its name, and `%Reactor.Step{name: any}` means that name is an
+  # arbitrary term — an atom for a declared step, a tuple like
+  # `{Reactor.Step.Map, outer, inner, index}` for one a composite generated.
+  #
+  # The key is a digest of the name's canonical encoding, which gives a fixed width for a term
+  # of unbounded size. `:deterministic` is what makes it canonical: the default encoding varies
+  # through atom cache references and map key ordering, and would otherwise hash one name two
+  # ways across attempts.
 
   @doc "The checkpoint key for a step name."
   @spec for(term()) :: binary()

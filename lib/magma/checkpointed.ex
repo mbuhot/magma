@@ -1,14 +1,14 @@
 defmodule Magma.Checkpointed do
-  @moduledoc """
-  The step implementation magma wraps every step in.
+  @moduledoc false
 
-  A recorded output comes back from here rather than from a guard, which matters: Reactor
-  keeps a guard-skipped step off its undo stack, so a replayed value returned that way could
-  never be taken back. Returning it through `run/3` makes the step an ordinary success — it
-  lands on the undo stack, stores an intermediate result, and unwinds with everything else.
-
-  Every other callback delegates to the step this wraps.
-  """
+  # The step implementation magma wraps every step in.
+  #
+  # A recorded output comes back from here rather than from a guard, which matters: Reactor
+  # keeps a guard-skipped step off its undo stack, so a replayed value returned that way could
+  # never be taken back. Returning it through `run/3` makes the step an ordinary success — it
+  # lands on the undo stack, stores an intermediate result, and unwinds with everything else.
+  #
+  # Every other callback delegates to the step this wraps.
 
   use Reactor.Step
 

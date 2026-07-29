@@ -91,15 +91,19 @@ defmodule Magma.MixProject do
           Magma.Resource.Checkpoint,
           Magma.Resource.Signal,
           Magma.Resource.Waiter,
-          Magma.Store,
+          Magma.Store
+        ],
+        "Types and errors": [
+          Magma.Status,
+          Magma.Waiting,
+          Magma.Type.Term,
+          Magma.TimeoutError
+        ],
+        Operating: [
+          Magma.Worker,
+          Magma.Middleware,
           Magma.Retention,
           Magma.Pruner
-        ],
-        Internals: [
-          Magma.Checkpointed,
-          Magma.Run,
-          Magma.Unwind,
-          Magma.Worker
         ]
       ],
       nest_modules_by_prefix: [Magma.Dsl, Magma.Resource, Magma.Step],

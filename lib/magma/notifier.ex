@@ -1,11 +1,11 @@
 defmodule Magma.Notifier do
-  @moduledoc """
-  Wakes a blocked `await` the moment its signal commits.
+  @moduledoc false
 
-  It rides on Oban's notifier, so it reaches every node without magma taking a pubsub
-  dependency of its own. A missed message costs nothing: the step re-checks the store before
-  it halts, and a halted workflow is brought back by the resume job rather than by this.
-  """
+  # Wakes a blocked `await` the moment its signal commits.
+  #
+  # It rides on Oban's notifier, so it reaches every node without magma taking a pubsub
+  # dependency of its own. A missed message costs nothing: the step re-checks the store before
+  # it halts, and a halted workflow is brought back by the resume job rather than by this.
 
   @channel :magma_signal
 

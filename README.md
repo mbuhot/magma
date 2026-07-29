@@ -105,9 +105,9 @@ back on its own.
 Oban. An `{:error, ...}` that survives Reactor's own retries ends the run and rolls it back.
 
 **A rollback that starts, finishes.** The first checkpoint taken back moves the workflow to
-`unwinding`, and from there it never runs forward again. `Magma.Unwind` walks the standing
-checkpoints newest-first and drives each step's `undo/4`. The marks are the progress log, so
-a crash mid-rollback carries on from exactly where it stopped.
+`unwinding`, and from there it never runs forward again. The standing checkpoints are walked
+newest-first and each step's `undo/4` is driven with the value it recorded. The marks are the
+progress log, so a crash mid-rollback carries on from exactly where it stopped.
 
 ## Testing
 

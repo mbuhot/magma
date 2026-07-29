@@ -1,9 +1,19 @@
 defmodule Magma.Middleware do
   @moduledoc """
-  Observes a durable run.
+  The telemetry a durable run emits.
 
-  Its `event/3` can only report, so the checkpoint write lives in `Magma.Checkpointed`, where
-  a failure to write can fail the step.
+  | Event | Emitted when |
+  |---|---|
+  | `[:magma, :step, :step_complete]` | a step returns successfully |
+  | `[:magma, :step, :step_error]` | a step returns an error |
+
+  Measurements are `%{system_time: System.system_time()}`. Metadata is `%{step: name,
+  workflow_id: id}`, where `step` is the step's declared name and `workflow_id` is `nil` for a
+  reactor run outside magma.
+
+  Attach to them as you would any telemetry event:
+
+      :telemetry.attach("magma-steps", [:magma, :step, :step_complete], &handler/4, nil)
   """
 
   use Reactor.Middleware

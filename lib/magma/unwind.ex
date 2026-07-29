@@ -1,18 +1,18 @@
 defmodule Magma.Unwind do
-  @moduledoc """
-  Takes back the work a run left standing.
+  @moduledoc false
 
-  Reactor owns unwinding inside a live run: it built the undo stack as steps completed and it
-  pops it when one fails. This drives the other case — a rollback that has to survive the
-  process it started in.
-
-  `Reactor.run/4` accepts `:pending` and `:halted`, so a half-finished rollback has no entry
-  point in the executor. Rather than replay and poison, which cannot promise a parallel branch
-  gets reached before the error propagates, this walks the checkpoints directly.
-
-  The `undone_at` marks are the progress log. A crash part way through leaves the remaining
-  standing checkpoints as they were, and the next attempt carries on from exactly there.
-  """
+  # Takes back the work a run left standing.
+  #
+  # Reactor owns unwinding inside a live run: it built the undo stack as steps completed and it
+  # pops it when one fails. This drives the other case — a rollback that has to survive the
+  # process it started in.
+  #
+  # `Reactor.run/4` accepts `:pending` and `:halted`, so a half-finished rollback has no entry
+  # point in the executor. Rather than replay and poison, which cannot promise a parallel branch
+  # gets reached before the error propagates, this walks the checkpoints directly.
+  #
+  # The `undone_at` marks are the progress log. A crash part way through leaves the remaining
+  # standing checkpoints as they were, and the next attempt carries on from exactly there.
 
   require Logger
 

@@ -1,11 +1,11 @@
 defmodule Magma.Run do
-  @moduledoc """
-  Turns a reactor into a durable one and runs it.
+  @moduledoc false
 
-  Decoration happens before `Reactor.run/4` and touches nothing but the built `%Reactor{}`.
-  Reactor's planner, executor loop and concurrency are left exactly as they are, so the graph
-  that runs is the one the DSL describes.
-  """
+  # Turns a reactor into a durable one and runs it.
+  #
+  # Decoration happens before `Reactor.run/4` and touches nothing but the built `%Reactor{}`.
+  # Reactor's planner, executor loop and concurrency are left exactly as they are, so the graph
+  # that runs is the one the DSL describes.
 
   alias Magma.Key
   alias Magma.Store
