@@ -58,8 +58,8 @@ An engine fixes both. It records each step as it completes, so a process that co
 what is already true, and it holds the waiting so no process has to. You write a sequence. What
 runs is a series of short attempts against a persistent record.
 
-The idea comes from [DBOS](https://www.dbos.dev); Temporal and Restate are the same family.
-Magma builds it out of pieces an Elixir application probably already has.
+Magma is inspired by [DBOS](https://www.dbos.dev); Temporal and Restate are the same family. It
+builds the model out of pieces an Elixir application probably already has.
 
 ## The model, in two pieces
 

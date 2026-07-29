@@ -166,8 +166,9 @@ mix test
 
 ## Credit
 
-The durable-execution model — checkpoint each step, replay on recovery — comes from
-[DBOS](https://www.dbos.dev). Magma reaches it by composing Reactor, Oban and Ash.
+Inspired by [DBOS](https://www.dbos.dev), whose durable-execution model — checkpoint each step,
+replay on recovery — is the one magma implements. Magma reaches it by composing Reactor, Oban
+and Ash.
 
 ## License
 
