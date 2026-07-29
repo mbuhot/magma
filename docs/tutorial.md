@@ -603,4 +603,4 @@ assert Provider.calls(:send_payout) == 1
 
 - [`README.md`](../README.md) — the shape of the library
 - [`DECISIONS.md`](../DECISIONS.md) — what shaped magma, and what each choice rules out
-- [`examples/payouts`](../examples/payouts) — the app this session ran against
+- [`examples/payouts`](https://github.com/mbuhot/magma/tree/main/examples/payouts) — the app this session ran against

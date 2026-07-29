@@ -5,7 +5,7 @@ what it rules out. Entries are appended; a reversal is a new entry naming the on
 replaces.
 
 The full design lives in
-[`docs/superpowers/specs/2026-07-29-magma-durable-workflows-design.md`](docs/superpowers/specs/2026-07-29-magma-durable-workflows-design.md).
+[the design spec](https://github.com/mbuhot/magma/blob/main/docs/superpowers/specs/2026-07-29-magma-durable-workflows-design.md).
 
 ---
 
@@ -130,7 +130,7 @@ that sequence predictable. Keying on names lifts the restriction entirely.
 
 ## 9. Interception is three decorations, applied before the run
 
-`Magma.Run.decorate/1` rewrites the built `%Reactor{}` — wraps each step's `impl`, rewrites
+`Magma.Run.decorate/2` rewrites the built `%Reactor{}` — wraps each step's `impl`, rewrites
 its guards, prepends the middleware, seeds the context. Reactor's public API is the whole
 interface.
 

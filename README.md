@@ -153,7 +153,7 @@ end
 ## Reading further
 
 - [`DECISIONS.md`](DECISIONS.md) — what shaped magma, and what each choice rules out
-- [`docs/superpowers/specs/`](docs/superpowers/specs/) — the full design
+- [`docs/superpowers/specs/`](https://github.com/mbuhot/magma/tree/main/docs/superpowers/specs) — the full design
 
 ## Development
 

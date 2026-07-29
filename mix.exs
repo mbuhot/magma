@@ -17,7 +17,8 @@ defmodule Magma.MixProject do
       package: package(),
       docs: docs(),
       name: "Magma",
-      source_url: @source_url
+      source_url: @source_url,
+      homepage_url: @source_url
     ]
   end
 
@@ -59,7 +60,50 @@ defmodule Magma.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "DECISIONS.md"]
+      source_ref: "v#{@version}",
+      extras: [
+        "README.md": [title: "Overview"],
+        "docs/tutorial.md": [title: "Tutorial"],
+        "DECISIONS.md": [title: "Design decisions"]
+      ],
+      groups_for_extras: [
+        Guides: ["README.md", "docs/tutorial.md"],
+        Reference: ["DECISIONS.md"]
+      ],
+      groups_for_modules: [
+        "Writing workflows": [
+          Magma,
+          Magma.Dsl,
+          Magma.Testing
+        ],
+        "DSL entities": [
+          Magma.Dsl.Await,
+          Magma.Dsl.Dispatch,
+          Magma.Dsl.Poll
+        ],
+        Steps: [
+          Magma.Step.Await,
+          Magma.Step.Dispatch,
+          Magma.Step.Poll
+        ],
+        "The store": [
+          Magma.Resource.Workflow,
+          Magma.Resource.Checkpoint,
+          Magma.Resource.Signal,
+          Magma.Resource.Waiter,
+          Magma.Store,
+          Magma.Retention,
+          Magma.Pruner
+        ],
+        Internals: [
+          Magma.Checkpointed,
+          Magma.Run,
+          Magma.Unwind,
+          Magma.Worker
+        ]
+      ],
+      nest_modules_by_prefix: [Magma.Dsl, Magma.Resource, Magma.Step],
+      skip_undefined_reference_warnings_on: ["DECISIONS.md"]
     ]
   end
 end
