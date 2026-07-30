@@ -38,6 +38,12 @@ defmodule Agency.Sale do
     resource Agency.Sale.Buyer do
       define(:register_buyer, action: :register)
       define(:set_buyer_register_status, action: :set_register_status, get_by: [:id])
+
+      define(:available_buyers,
+        action: :available_for_agreement,
+        args: [:agency_agreement_id]
+      )
+
       define(:list_buyers, action: :read)
     end
 
@@ -45,6 +51,7 @@ defmodule Agency.Sale do
       define(:make_offer, action: :make)
       define(:set_offer_status, action: :set_status, get_by: [:id])
       define(:get_offer, action: :by_id, args: [:id])
+      define(:offers_for_attempt, action: :for_attempt, args: [:sale_attempt_id])
       define(:live_offers_for_attempt, action: :live_for_attempt, args: [:sale_attempt_id])
       define(:list_offers, action: :read)
     end
@@ -58,6 +65,7 @@ defmodule Agency.Sale do
     resource Agency.Sale.Condition do
       define(:impose_condition, action: :impose)
       define(:resolve_condition, action: :resolve, get_by: [:id])
+      define(:conditions_for_contract, action: :for_contract, args: [:contract_id])
       define(:list_conditions, action: :read)
     end
 

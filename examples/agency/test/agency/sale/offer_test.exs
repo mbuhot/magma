@@ -27,6 +27,7 @@ defmodule Agency.Sale.OfferTest do
 
     Sale.open_attempt!(%{
       agency_agreement_id: agreement.id,
+      sale_method: :treaty,
       generation: 1,
       opened_at: ~U[2026-08-05 00:00:00Z]
     })

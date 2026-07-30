@@ -29,6 +29,11 @@ defmodule Agency.Sale.Condition do
   actions do
     defaults([:read])
 
+    read :for_contract do
+      argument(:contract_id, :uuid_v7, allow_nil?: false)
+      filter(expr(contract_id == ^arg(:contract_id)))
+    end
+
     create :impose do
       accept([:contract_id, :kind, :due_date])
     end

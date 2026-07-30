@@ -31,6 +31,7 @@ defmodule Agency.Sale.SaleAttemptTest do
     first_attempt =
       Sale.open_attempt!(%{
         agency_agreement_id: agreement.id,
+        sale_method: :treaty,
         generation: 1,
         opened_at: ~U[2026-08-05 00:00:00Z]
       })
@@ -43,6 +44,7 @@ defmodule Agency.Sale.SaleAttemptTest do
     second_attempt =
       Sale.open_attempt!(%{
         agency_agreement_id: agreement.id,
+        sale_method: :treaty,
         predecessor_id: first_attempt.id,
         generation: 2,
         opened_at: ~U[2026-08-21 00:00:00Z]

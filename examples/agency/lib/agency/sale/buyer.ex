@@ -30,6 +30,16 @@ defmodule Agency.Sale.Buyer do
   actions do
     defaults([:read])
 
+    read :available_for_agreement do
+      argument(:agency_agreement_id, :uuid_v7, allow_nil?: false)
+
+      filter(
+        expr(agency_agreement_id == ^arg(:agency_agreement_id) and register_status == :available)
+      )
+
+      prepare(build(sort: [inserted_at: :asc]))
+    end
+
     create :register do
       accept([:agency_agreement_id, :name, :conveyancer, :lender])
     end

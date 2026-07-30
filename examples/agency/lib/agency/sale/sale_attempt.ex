@@ -11,6 +11,7 @@ defmodule Agency.Sale.SaleAttempt do
   attributes do
     uuid_v7_primary_key(:id)
     attribute(:generation, :integer, allow_nil?: false, public?: true)
+    attribute(:sale_method, Agency.Sale.SaleMethod, allow_nil?: false, public?: true)
 
     attribute(:outcome, Agency.Sale.AttemptOutcome,
       allow_nil?: false,
@@ -40,7 +41,7 @@ defmodule Agency.Sale.SaleAttempt do
     end
 
     create :open do
-      accept([:agency_agreement_id, :predecessor_id, :generation, :opened_at])
+      accept([:agency_agreement_id, :predecessor_id, :generation, :sale_method, :opened_at])
     end
 
     update :close do
