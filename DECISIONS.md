@@ -457,7 +457,18 @@ child and waits, and an element that resolved carries a checkpoint — so the or
 for nothing. An element answered from the row consumes any report still pending and gives up
 the wait, so a parent answered another way holds nothing.
 
-**Costs:** a `failed` workflow whose rollback was resumed by a later attempt reaches
-`Magma.Unwind` rather than the worker's failure path, so its `error` is never written and it
-sends no report. Such a child answers its parent with its status alone. Writing the error at
-the point the run commits to unwinding is what would close it.
+**Both paths give the same account.** A step failure that nothing can compensate is written to
+the workflow's row by `Magma.Middleware` as the failure happens, before the rollback it triggers
+takes anything back. A rollback resumed by a later attempt therefore ends the workflow carrying
+that error, and `Magma.Worker` reports it to the parent from there as the ordinary failure path
+would have. Whichever way `Magma.Step.Dispatch` resolves — the report or the row — it wraps what
+it read in a `Magma.ChildError` carrying the child's id, its module and its own error, so a
+parent's failure names the child that died and the inner error stays reachable as a field. A
+chain of dispatches nests one inside the next, and the outermost message reads down to the
+cause.
+
+**Costs:** an extra write on the failing path, and two shapes of stored error — the ordinary
+ending records what `Reactor.run/4` returned, a resumed rollback keeps the step error the
+middleware saw. The write is skipped for a step that can compensate, since its failure may yet
+be recovered, so a rollback resumed after a compensation itself failed is what the
+`compensate_error` event covers.

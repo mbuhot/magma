@@ -675,6 +675,42 @@ defmodule Magma.Test.Workflows do
     |> Map.fetch!(currency)
   end
 
+  defmodule ReversibleRail do
+    @moduledoc "A rail that reserves something it can give back before it sends."
+    use Reactor
+
+    input(:transfer_id)
+
+    step :reserve, {Magma.Test.Workflows.Undoable.Step, name: :rail_reserve} do
+      argument(:transfer_id, input(:transfer_id))
+    end
+
+    step :send, {Effect, name: :rail_send} do
+      argument(:reserve, result(:reserve))
+    end
+
+    return(:send)
+  end
+
+  defmodule ReversibleSpine do
+    @moduledoc "A dispatch whose child rolls back before it ends."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:transfer_id)
+
+    dispatch :rail do
+      workflow(Magma.Test.Workflows.ReversibleRail)
+      block_ms(0)
+      argument(:transfer_id, input(:transfer_id))
+    end
+
+    step :reconcile, {Effect, name: :reconcile} do
+      argument(:rail, result(:rail))
+    end
+
+    return(:reconcile)
+  end
+
   defmodule Leg do
     @moduledoc false
     use Reactor
@@ -724,6 +760,36 @@ defmodule Magma.Test.Workflows do
     end
 
     return(:loop)
+  end
+
+  defmodule LegSpine do
+    @moduledoc "A dispatch of one leg, dispatched in turn by something else."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:transfer_id)
+
+    dispatch :leg do
+      workflow(Magma.Test.Workflows.Leg)
+      block_ms(0)
+      argument(:transfer_id, input(:transfer_id))
+    end
+
+    return(:leg)
+  end
+
+  defmodule Corridor do
+    @moduledoc "Two levels of dispatch, so a failure at the bottom has a chain to read down."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:transfer_id)
+
+    dispatch :hop do
+      workflow(Magma.Test.Workflows.LegSpine)
+      block_ms(0)
+      argument(:transfer_id, input(:transfer_id))
+    end
+
+    return(:hop)
   end
 
   defmodule Ephemeral do

@@ -34,12 +34,15 @@ defmodule Magma.Worker do
   end
 
   # A rollback already under way never rolls forward again. It picks up from the marks and
-  # ends the workflow once nothing is left standing.
+  # ends the workflow once nothing is left standing. The failure that started the rollback was
+  # written before it began, so the ending carries it and the parent is told the same thing the
+  # ordinary failure path would have told it.
   defp unwind(workflow, ending) do
     case Magma.Unwind.run(workflow) do
       {:ok, _unresolved} ->
-        {:ok, _ended} = Store.update_workflow(workflow, ending, %{})
-        :ok = Store.release_all(workflow.id)
+        {:ok, ended} = Store.update_workflow(workflow, ending, %{})
+        :ok = Store.release_all(ended.id)
+        :ok = Magma.Api.report_to_parent(ended, {:error, ended.error || ended.status})
         :ok
 
       {:error, errors} ->

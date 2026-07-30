@@ -281,6 +281,20 @@ defmodule Magma.CompositeTest do
       assert status(rail_child(workflow, 2)) == :completed
     end
 
+    test "the run names the child that turned its transfer down" do
+      Application.put_env(:magma, :test_refused_transfers, ["t2"])
+
+      {:ok, workflow} = start_three_rails()
+
+      run_workflows()
+
+      failure = child_failure(workflow.id)
+
+      assert failure.workflow_id == rail_child(workflow, 1)
+      assert failure.module == Workflows.RefusableRail
+      assert Exception.message(failure) =~ "the rail turned down t2"
+    end
+
     test "a run whose child failed alongside others still ends" do
       Application.put_env(:magma, :test_refused_transfers, ["t2"])
 

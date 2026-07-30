@@ -99,6 +99,24 @@ child's workflow completes with:
 The dispatching step gets that map back as its result and branches on it. A `dispatch` that
 raises indicates a bug in the child.
 
+## What a failed child hands back
+
+A child that failed reaches the caller as a `Magma.ChildError`:
+
+```elixir
+%Magma.ChildError{
+  workflow_id: "019faae3-...",
+  module: MyApp.Rail,
+  error: %RuntimeError{message: "the rail is down"}
+}
+```
+
+`workflow_id` and `module` name the child. `error` is the child's own error — match on it when
+the caller cares what went wrong. `Exception.message/1` reads down a chain of dispatches to the
+cause, so an engagement failing four levels deep names every workflow between.
+
+A child that failed while taking its own work back hands back the same thing.
+
 ## Addressing fan-out
 
 A signal name is fixed at compile time, so an `await` inside a `map` shares one signal name

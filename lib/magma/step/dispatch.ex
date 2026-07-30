@@ -22,6 +22,9 @@ defmodule Magma.Step.Dispatch do
   The child's row carries how it ended, so a child that has already reached a terminal state is
   answered from that row. The report is a wake-up, and an attempt that finds one already taken
   still resolves.
+
+  A child that failed reaches the caller as a `Magma.ChildError` naming it, whichever of the two
+  the outcome was read from.
   """
 
   use Reactor.Step
@@ -45,7 +48,7 @@ defmodule Magma.Step.Dispatch do
 
       :under_way ->
         timeout = Magma.Step.Await.resolve(Keyword.get(options, :timeout), arguments, context)
-        await(parent_id, signal, timeout, options)
+        await(child_id, parent_id, signal, timeout, options)
     end
   end
 
@@ -63,8 +66,10 @@ defmodule Magma.Step.Dispatch do
   end
 
   defp outcome(%{status: :completed, result: result}), do: {:ok, result}
-  defp outcome(%{status: status, error: nil}), do: {:error, status}
-  defp outcome(%{status: _status, error: error}), do: {:error, error}
+
+  defp outcome(%{id: id, module: module, status: status, error: error}) do
+    {:error, %Magma.ChildError{workflow_id: id, module: module, error: error || status}}
+  end
 
   # A child answered from its own row leaves nothing for the parent to hold: the report it sent
   # has been read another way, and the wait it would have answered is over.
@@ -93,7 +98,7 @@ defmodule Magma.Step.Dispatch do
     :ok
   end
 
-  defp await(parent_id, signal, timeout, options) do
+  defp await(child_id, parent_id, signal, timeout, options) do
     case Magma.Step.Await.run(
            %{},
            %{magma: %Run{workflow_id: parent_id, checkpoints: %{}}, current_step: nil},
@@ -103,9 +108,19 @@ defmodule Magma.Step.Dispatch do
            on_timeout: :error
          ) do
       {:ok, {:ok, result}} -> {:ok, result}
-      {:ok, {:error, error}} -> {:error, error}
+      {:ok, {:error, error}} -> {:error, reported(child_id, error)}
       other -> other
     end
+  end
+
+  defp reported(child_id, error) do
+    module =
+      case Store.get_workflow(child_id) do
+        {:ok, %{module: module}} -> module
+        _otherwise -> nil
+      end
+
+    %Magma.ChildError{workflow_id: child_id, module: module, error: error}
   end
 
   defp signal_name(step_name), do: "magma.child." <> Magma.Key.label(step_name)

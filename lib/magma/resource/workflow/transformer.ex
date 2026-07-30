@@ -38,6 +38,7 @@ defmodule Magma.Resource.Workflow.Transformer do
       accept: [:id, :module, :inputs, :actor, :tenant, :parent_workflow_id, :parent_signal]
     )
     |> Builder.add_new_action(:update, :set_status, accept: [:status], require_atomic?: false)
+    |> Builder.add_new_action(:update, :record_error, accept: [:error], require_atomic?: false)
     |> Builder.add_new_action(:update, :complete,
       accept: [:result],
       require_atomic?: false,

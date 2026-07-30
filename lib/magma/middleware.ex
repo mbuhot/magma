@@ -14,6 +14,10 @@ defmodule Magma.Middleware do
   Attach to them as you would any telemetry event:
 
       :telemetry.attach("magma-steps", [:magma, :step, :step_complete], &handler/4, nil)
+
+  A step failure that nothing can compensate is also written to the workflow's row from here,
+  before the rollback it triggers takes anything back. That is what leaves the cause on the
+  record for an attempt that finds a rollback already under way.
   """
 
   use Reactor.Middleware
@@ -23,8 +27,14 @@ defmodule Magma.Middleware do
     telemetry(:step_complete, step, context)
   end
 
-  def event({:run_error, _errors}, step, context) do
+  def event({:run_error, error}, step, context) do
+    unless Reactor.Step.can?(step, :compensate), do: record_error(context, error)
+
     telemetry(:step_error, step, context)
+  end
+
+  def event({:compensate_error, error}, _step, context) do
+    record_error(context, error)
   end
 
   def event(_event, _step, _context), do: :ok
@@ -44,6 +54,12 @@ defmodule Magma.Middleware do
       %{system_time: System.system_time()},
       %{step: step.name, workflow_id: workflow_id(context)}
     )
+
+    :ok
+  end
+
+  defp record_error(context, error) do
+    Magma.Run.record_error(context, error)
 
     :ok
   end

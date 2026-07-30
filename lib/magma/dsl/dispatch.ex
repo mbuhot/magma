@@ -12,9 +12,9 @@ defmodule Magma.Dsl.Dispatch do
   returned. `workflow`, `inputs` and `timeout` may each be resolved at run time, so the module a
   payout reaches for can come from config or from an argument.
 
-  It cannot sit inside `group`, `around`, `recurse` or `compose`. A child's failure unwinds the
-  caller, so an expected failure is a return value the child completes with — see
-  `usage-rules.md`.
+  It cannot sit inside `group`, `around`, `recurse` or `compose`. A child's failure reaches the
+  caller as a `Magma.ChildError` and unwinds it, so an expected failure is a return value the
+  child completes with — see `usage-rules.md`.
   """
 
   defstruct __identifier__: nil,

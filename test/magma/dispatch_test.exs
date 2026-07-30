@@ -132,6 +132,81 @@ defmodule Magma.DispatchTest do
     assert Effects.count(:rail_send) == 1
   end
 
+  test "a spine that failed because its rail did names the rail and carries its error" do
+    Effects.fail_after(:rail_send, 99)
+    {:ok, spine} = Magma.start(Workflows.Spine, %{transfer_id: "t1", currency: "EUR"})
+
+    run_workflows()
+
+    failure = child_failure(spine.id)
+
+    assert failure.workflow_id == Magma.child_id(spine.id, :rail)
+    assert failure.module == Workflows.Rail
+    assert Exception.message(failure) =~ "rail_send is down"
+  end
+
+  test "a spine whose rail died taking its work back still names the rail" do
+    Effects.fail_after(:rail_send, 99)
+    {:ok, spine} = Magma.start(Workflows.ReversibleSpine, %{transfer_id: "t1"})
+    attempt(spine.id)
+
+    child_id = Magma.child_id(spine.id, :rail)
+    {:ok, child} = Magma.fetch(child_id)
+    {:error, _abandoned} = Magma.Run.run(child)
+
+    assert status(child_id) == :unwinding
+    assert Effects.count({:undo, :rail_reserve}) == 1
+
+    attempt(child_id)
+    attempt(spine.id)
+
+    assert status(child_id) == :failed
+    assert status(spine) == :failed
+    assert Effects.count(:reconcile) == 0
+
+    failure = child_failure(spine.id)
+
+    assert failure.workflow_id == child_id
+    assert failure.module == Workflows.ReversibleRail
+    assert Exception.message(failure) =~ "rail_send is down"
+  end
+
+  test "a failure two dispatches down reads through both children to the cause" do
+    Effects.fail_after(:leg_body, 99)
+    {:ok, corridor} = Magma.start(Workflows.Corridor, %{transfer_id: "t1"})
+
+    run_workflows()
+
+    hop_id = Magma.child_id(corridor.id, :hop)
+    leg_id = Magma.child_id(hop_id, :leg)
+
+    outer = child_failure(corridor.id)
+
+    assert status(corridor) == :failed
+    assert outer.workflow_id == hop_id
+    assert outer.module == Workflows.LegSpine
+    assert Exception.message(outer) =~ leg_id
+    assert Exception.message(outer) =~ "leg_body is down"
+
+    inner = child_failure(outer.error)
+
+    assert inner.workflow_id == leg_id
+    assert inner.module == Workflows.Leg
+  end
+
+  test "nothing runs a second time on an attempt after a rail has failed" do
+    Effects.fail_after(:rail_send, 99)
+    {:ok, spine} = Magma.start(Workflows.Spine, %{transfer_id: "t1", currency: "EUR"})
+    run_workflows()
+
+    attempt(spine.id)
+
+    assert status(spine) == :failed
+    assert Effects.count(:quote) == 1
+    assert Effects.count(:rail_send) == 1
+    assert Effects.count(:reconcile) == 0
+  end
+
   defp attempt(workflow_id) do
     Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow_id}})
   end

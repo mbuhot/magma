@@ -103,6 +103,27 @@ defmodule Magma.Store do
   end
 
   @doc """
+  Writes the failure a run met, leaving its status alone.
+
+  A run that goes on to roll back has this on the record before the first checkpoint is taken
+  back, so the cause is there for whichever attempt ends the workflow.
+  """
+  @spec record_error(String.t(), term()) :: :ok | {:error, term()}
+  def record_error(workflow_id, error) do
+    case get_workflow(workflow_id) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, workflow} ->
+        with {:ok, _recorded} <- update_workflow(workflow, :record_error, %{error: error}),
+             do: :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
   Every checkpoint a workflow has, keyed by step key.
 
   One read per attempt. A step's lookup during the run is against this map rather than the

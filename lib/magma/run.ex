@@ -138,6 +138,14 @@ defmodule Magma.Run do
     end
   end
 
+  @doc "Writes the failure that is about to roll the run back."
+  @spec record_error(map(), term()) :: :ok | {:error, term()}
+  def record_error(%{magma: %__MODULE__{workflow_id: workflow_id}}, error) do
+    Store.record_error(workflow_id, error)
+  end
+
+  def record_error(_context, _error), do: :ok
+
   @doc "Marks a step's checkpoint as taken back."
   @spec mark_undone(map(), term()) :: :ok | {:error, term()}
   def mark_undone(%{magma: %__MODULE__{workflow_id: workflow_id}}, name) do
