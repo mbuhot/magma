@@ -23,13 +23,7 @@ defmodule AgencyWeb.ListingLive do
   end
 
   @impl true
-  def handle_info(%Phoenix.Socket.Broadcast{topic: topic}, socket) do
-    require Logger
-
-    Logger.info(
-      "DESK GOT #{topic} actions=#{inspect(socket.assigns.board && stage_actions(socket.assigns.board) |> length())}"
-    )
-
+  def handle_info(%Phoenix.Socket.Broadcast{}, socket) do
     {:noreply, load(socket)}
   end
 
@@ -330,7 +324,13 @@ defmodule AgencyWeb.ListingLive do
           </button>
         </div>
 
-        <form :if={@signing?} id="new-listing" class="newform" phx-submit="start_listing">
+        <form
+          :if={@signing?}
+          id="new-listing"
+          class="newform"
+          phx-submit="start_listing"
+          phx-update="ignore"
+        >
           <input name="address" placeholder="Address" required />
           <input name="suburb" placeholder="Suburb" required />
           <select name="jurisdiction">
@@ -552,6 +552,7 @@ defmodule AgencyWeb.ListingLive do
           id="new-offer"
           class="offerform"
           phx-submit="receive_offer"
+          phx-update="ignore"
         >
           <input name="buyer_name" placeholder="Buyer" required />
           <input name="lender" placeholder="Lender, or cash" />
@@ -621,7 +622,7 @@ defmodule AgencyWeb.ListingLive do
 
   defp stage_actions(%{stage: :prep} = board) do
     board.required_documents
-    |> Enum.filter(&awaited?(board, &1))
+    |> Enum.reject(&(&1 in board.received_documents))
     |> Enum.map(
       &%{
         label: "#{Sale.DocumentKind.label(&1)} received",
@@ -631,16 +632,6 @@ defmodule AgencyWeb.ListingLive do
         danger: false
       }
     )
-  end
-
-  # The gate is the authority on which document it is waiting for, and it takes them one at a
-  # time, so what the agent is offered is what the gate can presently accept.
-  defp awaited?(%{workflows: %{engagement_id: nil}}, _kind), do: false
-
-  defp awaited?(%{workflows: %{engagement_id: engagement_id}}, kind) do
-    engagement_id
-    |> Sale.Runs.compliance_gate_id()
-    |> Sale.Runs.waiting_on?("document.#{kind}")
   end
 
   defp stage_actions(%{stage: :marketing}) do
@@ -705,18 +696,24 @@ defmodule AgencyWeb.ListingLive do
   end
 
   defp stage_actions(%{stage: :auction_day} = board) do
-    highest = Enum.find(board.offers, &(&1.status == :live))
+    passed_in = %{label: "Passed in", event: "passed_in", values: %{}, key: false, danger: false}
 
-    [
-      %{
-        label: "Sold under the hammer at #{Board.money(highest.amount)}",
-        event: "sold_under_the_hammer",
-        values: %{},
-        key: true,
-        danger: false
-      },
-      %{label: "Passed in", event: "passed_in", values: %{}, key: false, danger: false}
-    ]
+    case Enum.find(board.offers, &(&1.status == :live)) do
+      nil ->
+        [passed_in]
+
+      highest ->
+        [
+          %{
+            label: "Sold under the hammer at #{Board.money(highest.amount)}",
+            event: "sold_under_the_hammer",
+            values: %{},
+            key: true,
+            danger: false
+          },
+          passed_in
+        ]
+    end
   end
 
   defp stage_actions(%{stage: :back_on_market} = board) do

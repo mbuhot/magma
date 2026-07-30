@@ -24,9 +24,7 @@ defmodule Agency.Sale.Contract.Wake do
 
         apply(module, function, [contract.id, decision])
 
-        Magma.Worker.perform(%Oban.Job{
-          args: %{"workflow_id" => workflow_id(contract, options[:to])}
-        })
+        :ok = Magma.wake(workflow_id(contract, options[:to]))
 
         {:ok, contract}
       end

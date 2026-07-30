@@ -14,20 +14,14 @@ defmodule AgencyWeb.ConsoleLive do
   alias AgencyWeb.Updates
 
   @impl true
-  @safety_net 2_000
-
   def mount(_params, _session, socket) do
-    if connected?(socket) do
-      Updates.follow()
-      :timer.send_interval(@safety_net, self(), :look_again)
-    end
+    if connected?(socket), do: Updates.follow()
 
     {:ok, assign(socket, status_filter: :all)}
   end
 
   @impl true
   def handle_info(%Phoenix.Socket.Broadcast{}, socket), do: {:noreply, reload(socket)}
-  def handle_info(:look_again, socket), do: {:noreply, reload(socket)}
 
   @impl true
   def handle_params(params, _uri, socket) do

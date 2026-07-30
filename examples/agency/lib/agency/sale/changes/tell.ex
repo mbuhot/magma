@@ -17,9 +17,6 @@ defmodule Agency.Sale.Changes.Tell do
 
   alias Agency.Sale.Runs
 
-  @waiting_for_the_engine 80
-  @a_moment 250
-
   @impl true
   def change(changeset, options, _context) do
     Ash.Changeset.after_transaction(changeset, fn changeset, result ->
@@ -27,46 +24,23 @@ defmodule Agency.Sale.Changes.Tell do
         arguments = changeset.arguments
         name = signal(options[:signal], arguments)
 
-        :ok =
-          tell(
-            record,
-            options[:to],
-            name,
-            payload(options, record, arguments),
-            @waiting_for_the_engine
-          )
+        :ok = tell(record, options[:to], name, payload(options, record, arguments))
 
         {:ok, record}
       end
     end)
   end
 
-  # A signal is only picked up by a wait that is already parked, and the run an agent is
-  # acting on may still be on its way there. The instruction waits for its listener rather
-  # than failing, or vanishing, in front of them.
-  defp tell(_record, _to, name, _payload, 0) do
-    raise "nothing ever parked to take #{name}"
-  end
+  defp tell(record, to, name, payload) do
+    case workflow_id(to, record) do
+      workflow_id when is_binary(workflow_id) ->
+        {:ok, _signal} = Magma.signal(workflow_id, name, payload)
+        :ok
 
-  defp tell(record, to, name, payload, tries_left) do
-    with workflow_id when is_binary(workflow_id) <- workflow_id(to, record),
-         true <- parked?(workflow_id, name),
-         {:ok, _signal} <- Magma.signal(workflow_id, name, payload) do
-      :ok
-    else
-      _not_yet ->
-        Process.sleep(@a_moment)
-        tell(record, to, name, payload, tries_left - 1)
+      nil ->
+        :ok
     end
   end
-
-  # Where the queues are held still, as they are under test, the caller runs the engine itself
-  # and nothing can park while it is waiting to be told.
-  defp parked?(workflow_id, name) do
-    not working_on_its_own?() or Runs.waiting_on?(workflow_id, name)
-  end
-
-  defp working_on_its_own?, do: Application.get_env(:agency, Oban)[:queues] != false
 
   defp workflow_id(:gate, listing), do: Runs.gate_id(listing.id)
   defp workflow_id(:campaign, listing), do: Runs.campaign_id(listing.id)

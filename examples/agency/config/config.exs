@@ -14,7 +14,7 @@ config :agency, Agency.Repo,
 
 config :agency, Oban,
   repo: Agency.Repo,
-  queues: [compliance: 1, sales: 1]
+  queues: [compliance: 5, sales: 10]
 
 config :agency, AgencyWeb.Endpoint,
   url: [host: "localhost"],

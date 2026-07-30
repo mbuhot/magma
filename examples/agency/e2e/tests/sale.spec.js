@@ -176,5 +176,5 @@ test("an auction that passes in is negotiated with the underbidder", async ({ pa
 
   await clickUntil(page, /^Accept Bianchi at/, page.getByRole("heading", { name: /^Cooling off/ }));
 
-  await expect(page.getByText("Bianchi")).toBeVisible();
+  await expect(page.getByText(/^Exchanged contracts with Bianchi at/)).toBeVisible();
 });
