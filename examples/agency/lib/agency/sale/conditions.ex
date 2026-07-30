@@ -2,9 +2,11 @@ defmodule Agency.Sale.Conditions do
   @moduledoc """
   The conditions an exchanged contract must satisfy before it can settle.
 
-  Finance, inspection and title each answer on their own signal, so they resolve in any order
-  and the contract goes unconditional on the last of them. One that resolves against the buyer
-  is what the caller reads back as a condition failure.
+  Finance and title are polled against the lender and the title office, since both are
+  external systems with queryable state. Inspection is awaited, since a buyer's inspector
+  reporting back is a person deciding. All three resolve in any order and the contract goes
+  unconditional on the last of them. One that resolves against the buyer is what the caller
+  reads back as a condition failure.
   """
 
   use Reactor, extensions: [Magma.Dsl]
@@ -18,9 +20,10 @@ defmodule Agency.Sale.Conditions do
 
   input(:contract_id)
 
-  await :finance do
-    signal("condition.finance")
-    timeout(Window.condition_period())
+  poll :finance do
+    every(Window.poll_interval())
+    until(&Steps.finance_status/2)
+    argument(:contract_id, input(:contract_id))
   end
 
   step :finance_condition, {Steps.Resolve, kind: :finance} do
@@ -38,9 +41,10 @@ defmodule Agency.Sale.Conditions do
     argument(:response, result(:inspection))
   end
 
-  await :title do
-    signal("condition.title")
-    timeout(Window.condition_period())
+  poll :title do
+    every(Window.poll_interval())
+    until(&Steps.title_status/2)
+    argument(:contract_id, input(:contract_id))
   end
 
   step :title_condition, {Steps.Resolve, kind: :title} do

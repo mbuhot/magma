@@ -178,17 +178,19 @@ defmodule Agency.Sale.Attempt do
                     argument(:exchange, result(:exchange))
                   end
 
-                  await :settlement do
-                    signal("settlement.completed")
-                    timeout(Window.settlement())
+                  poll :settlement do
+                    every(Window.poll_interval())
+                    until(&Steps.settlement_status/2)
+                    argument(:contract_id, result(:exchange, [:contract_id]))
                     wait_for(:advance_commission)
                   end
                 end
 
                 default do
-                  await :settlement do
-                    signal("settlement.completed")
-                    timeout(Window.settlement())
+                  poll :settlement do
+                    every(Window.poll_interval())
+                    until(&Steps.settlement_status/2)
+                    argument(:contract_id, result(:exchange, [:contract_id]))
                   end
                 end
               end

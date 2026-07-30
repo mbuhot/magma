@@ -1,5 +1,8 @@
 defmodule Agency.Sale.Window do
-  @moduledoc "How long each of the sale's human decisions is given, in milliseconds."
+  @moduledoc """
+  How long each of the sale's human decisions is given, and how often an external system is
+  checked, in milliseconds.
+  """
 
   @offer_response Application.compile_env(:agency, :offer_response_window_ms, :timer.hours(48))
 
@@ -18,6 +21,8 @@ defmodule Agency.Sale.Window do
   @condition_period Application.compile_env(:agency, :condition_window_ms, :timer.hours(24 * 21))
 
   @settlement Application.compile_env(:agency, :settlement_window_ms, :timer.hours(24 * 42))
+
+  @poll_interval Application.compile_env(:agency, :poll_interval_ms, :timer.minutes(30))
 
   @settlement_days 42
 
@@ -48,6 +53,10 @@ defmodule Agency.Sale.Window do
   @doc "How long a contract has between exchange and settlement."
   @spec settlement() :: pos_integer()
   def settlement, do: @settlement
+
+  @doc "How long a poll waits between checking an external system's state."
+  @spec poll_interval() :: pos_integer()
+  def poll_interval, do: @poll_interval
 
   @doc "When an offer made now expires."
   @spec offer_expiry() :: DateTime.t()

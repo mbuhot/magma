@@ -1,7 +1,29 @@
 defmodule Agency.Sale.Conditions.Steps do
   @moduledoc "The steps the conditions of an exchanged contract are resolved by."
 
+  alias Agency.Lender
   alias Agency.Sale
+  alias Agency.Titles
+
+  @doc "Whether the lender has decided the buyer's finance application yet."
+  @spec finance_status(map(), map()) :: {:ok, map()} | :not_yet
+  def finance_status(%{contract_id: contract_id}, _context) do
+    case Lender.status(contract_id) do
+      :approved -> {:ok, %{decision: :approved}}
+      :declined -> {:ok, %{decision: :declined}}
+      _still_assessing -> :not_yet
+    end
+  end
+
+  @doc "Whether the title search has come back yet."
+  @spec title_status(map(), map()) :: {:ok, map()} | :not_yet
+  def title_status(%{contract_id: contract_id}, _context) do
+    case Titles.status(contract_id) do
+      :clear -> {:ok, %{decision: :satisfied}}
+      :encumbered -> {:ok, %{decision: :failed}}
+      _still_ordered -> :not_yet
+    end
+  end
 
   defmodule Resolve do
     @moduledoc false

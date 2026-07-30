@@ -1,7 +1,7 @@
 import Config
 
 config :agency, ecto_repos: [Agency.Repo]
-config :agency, ash_domains: [Agency.Sale, Agency.Magma]
+config :agency, ash_domains: [Agency.Sale, Agency.External, Agency.Magma]
 
 config :magma, domain: Agency.Magma, repo: Agency.Repo
 
@@ -43,7 +43,8 @@ if config_env() == :test do
     cooling_off_day_ms: 20,
     agency_term_window_ms: 60,
     condition_window_ms: 60_000,
-    settlement_window_ms: 60_000
+    settlement_window_ms: 60_000,
+    poll_interval_ms: 20
 
   config :ash, :missed_notifications, :ignore
   config :logger, level: :warning

@@ -1,10 +1,13 @@
 defmodule Agency.Sale.AttemptTest do
   use Agency.DataCase, async: false
 
+  alias Agency.Lender
+  alias Agency.Pexa
   alias Agency.Sale
   alias Agency.Sale.Attempt
   alias Agency.Sale.Jurisdiction
   alias Agency.Sale.Window
+  alias Agency.Titles
 
   @vic_cooling_off Window.cooling_off(Jurisdiction.cooling_off(:vic).business_days)
 
@@ -23,23 +26,28 @@ defmodule Agency.Sale.AttemptTest do
 
   defp let_cooling_off_lapse, do: run_agency_after(@vic_cooling_off)
 
-  defp answer_the_conditions(workflow, finance) do
+  defp answer_the_conditions(workflow, finance_decision) do
     conditions = Magma.child_id(workflow.id, :conditions)
+    contract_id = the_contract().id
 
     {:ok, _inspection} =
       Magma.signal(conditions, "condition.inspection", %{decision: :satisfied})
 
-    {:ok, _title} = Magma.signal(conditions, "condition.title", %{decision: :satisfied})
-    {:ok, _finance} = Magma.signal(conditions, "condition.finance", %{decision: finance})
-    run_agency()
+    Titles.move!(contract_id, :clear)
+    Lender.move!(contract_id, finance_decision)
+    nudge(conditions)
 
     conditions
   end
 
-  defp report_settlement(workflow, result) do
-    {:ok, _signal} = Magma.signal(workflow.id, "settlement.completed", %{result: result})
-    run_agency()
+  defp report_settlement(workflow, outcome) do
+    contract_id = the_contract().id
+    Pexa.move!(contract_id, settlement_status(outcome))
+    nudge(workflow.id)
   end
+
+  defp settlement_status(:settled), do: :settled
+  defp settlement_status(:buyer_default), do: :defaulted
 
   defp the_commission, do: Sale.list_commissions!() |> List.first()
   defp the_deposit, do: Sale.list_deposits!() |> List.first()
@@ -71,7 +79,7 @@ defmodule Agency.Sale.AttemptTest do
       run_agency()
 
       assert recorded(workflow, :rescission) == :none
-      assert status(Magma.child_id(workflow.id, :conditions)) == :waiting
+      assert status(Magma.child_id(workflow.id, :conditions)) == :polling
 
       assert the_contract().price == 950_000_00
       assert the_deposit().amount == 95_000_00
@@ -117,7 +125,7 @@ defmodule Agency.Sale.AttemptTest do
       let_cooling_off_lapse()
 
       assert recorded(workflow, :rescission) == :timeout
-      assert status(Magma.child_id(workflow.id, :conditions)) == :waiting
+      assert status(Magma.child_id(workflow.id, :conditions)) == :polling
     end
   end
 
@@ -218,6 +226,34 @@ defmodule Agency.Sale.AttemptTest do
 
       assert second_generation != workflow.id
       assert status(second_generation) == :waiting
+    end
+  end
+
+  describe "a sale waiting on its lender" do
+    test "stays open until finance is approved" do
+      agreement = a_signed_listing(%{sale_method: :treaty})
+      attempt = the_first_attempt(agreement, :treaty)
+      an_offer(attempt, a_buyer(agreement, "Jordan Lee"), 900_000_00)
+
+      workflow = start_attempt(attempt)
+      accept_by_treaty(workflow)
+      let_cooling_off_lapse()
+
+      conditions = Magma.child_id(workflow.id, :conditions)
+      contract_id = the_contract().id
+
+      {:ok, _inspection} =
+        Magma.signal(conditions, "condition.inspection", %{decision: :satisfied})
+
+      Titles.move!(contract_id, :clear)
+      nudge(conditions)
+
+      assert the_contract().unconditional_at == nil
+
+      Lender.move!(contract_id, :approved)
+      nudge(conditions)
+
+      assert the_contract().unconditional_at != nil
     end
   end
 

@@ -1,10 +1,13 @@
 defmodule Agency.Sale.EngagementTest do
   use Agency.DataCase, async: false
 
+  alias Agency.Lender
+  alias Agency.Pexa
   alias Agency.Sale
   alias Agency.Sale.Engagement
   alias Agency.Sale.Jurisdiction
   alias Agency.Sale.Window
+  alias Agency.Titles
 
   @vic_cooling_off Window.cooling_off(Jurisdiction.cooling_off(:vic).business_days)
 
@@ -82,20 +85,20 @@ defmodule Agency.Sale.EngagementTest do
     assert recorded(sale, :rescission) == :timeout
 
     conditions = Magma.child_id(sale, :conditions)
-
-    {:ok, _finance} = Magma.signal(conditions, "condition.finance", %{decision: :approved})
-    {:ok, _title} = Magma.signal(conditions, "condition.title", %{decision: :satisfied})
+    contract_id = Sale.list_contracts!() |> List.first() |> Map.fetch!(:id)
 
     {:ok, _inspection} =
       Magma.signal(conditions, "condition.inspection", %{decision: :satisfied})
 
-    run_agency()
+    Lender.move!(contract_id, :approved)
+    Titles.move!(contract_id, :clear)
+    nudge(conditions)
 
     assert Sale.list_contracts!() |> List.first() |> Map.fetch!(:unconditional_at) != nil
     assert Sale.list_conditions!() |> Enum.all?(&(&1.status == :satisfied))
 
-    {:ok, _signal} = Magma.signal(sale, "settlement.completed", %{result: :settled})
-    run_agency()
+    Pexa.move!(contract_id, :settled)
+    nudge(sale)
 
     commission = Sale.list_commissions!() |> List.first()
 

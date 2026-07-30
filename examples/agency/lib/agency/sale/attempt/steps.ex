@@ -10,6 +10,16 @@ defmodule Agency.Sale.Attempt.Steps do
     Window.cooling_off(Jurisdiction.cooling_off(jurisdiction).business_days)
   end
 
+  @doc "Whether the PEXA workspace has closed, settled or defaulted, for the given contract."
+  @spec settlement_status(map(), map()) :: {:ok, map()} | :not_yet
+  def settlement_status(%{contract_id: contract_id}, _context) do
+    case Agency.Pexa.status(contract_id) do
+      :settled -> {:ok, %{result: :settled}}
+      :defaulted -> {:ok, %{result: :buyer_default}}
+      _still_booked -> :not_yet
+    end
+  end
+
   defmodule Setting do
     @moduledoc false
     use Reactor.Step
@@ -87,10 +97,13 @@ defmodule Agency.Sale.Attempt.Steps do
     @moduledoc false
     use Reactor.Step
 
+    alias Agency.Lender
+    alias Agency.Pexa
     alias Agency.Sale
     alias Agency.Sale.Clock
     alias Agency.Sale.Money
     alias Agency.Sale.Window
+    alias Agency.Titles
 
     @condition_business_days [finance: 14, inspection: 7, title: 21]
 
@@ -125,6 +138,7 @@ defmodule Agency.Sale.Attempt.Steps do
         })
 
       impose_conditions(contract, exchange_date, setting.jurisdiction)
+      open_third_parties(contract)
 
       Sale.set_buyer_register_status!(terms.buyer_id, %{register_status: :under_contract})
 
@@ -149,6 +163,12 @@ defmodule Agency.Sale.Attempt.Steps do
 
         Sale.impose_condition!(%{contract_id: contract.id, kind: kind, due_date: due_date})
       end)
+    end
+
+    defp open_third_parties(contract) do
+      Lender.open!(contract.id)
+      Titles.open!(contract.id)
+      Pexa.open!(contract.id)
     end
   end
 

@@ -99,10 +99,22 @@ defmodule Agency.DataCase do
     end)
   end
 
-  @doc "Comes back to the agency's workflows once the given window has run out."
+  @doc """
+  Comes back to the agency's workflows once the given window has run out.
+
+  Only the timeout due at this moment is forced; anything it goes on to dispatch is picked up
+  by the ordinary pass after, so a poll newly started in the same beat gets to wait its turn
+  rather than being forced to check again before any real time has passed.
+  """
   def run_agency_after(window_ms) do
     Process.sleep(window_ms + 40)
-    Magma.Testing.run_workflows(queue: :sales, with_scheduled: true)
+    Magma.Testing.run_workflows(queue: :sales, with_scheduled: true, with_recursion: false)
+    run_agency()
+  end
+
+  @doc "Forces a workflow parked on a poll to check the external system again, without waiting out its interval."
+  def nudge(workflow_id) do
+    Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow_id}})
     run_agency()
   end
 end
