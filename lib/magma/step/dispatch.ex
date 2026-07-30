@@ -18,11 +18,16 @@ defmodule Magma.Step.Dispatch do
   `workflow` is a module, or a two-arity function over the step's arguments and context that
   returns one. `inputs` is the same, defaulting to the step's arguments. `timeout` is the same,
   answering milliseconds.
+
+  The child's row carries how it ended, so a child that has already reached a terminal state is
+  answered from that row. The report is a wake-up, and an attempt that finds one already taken
+  still resolves.
   """
 
   use Reactor.Step
 
   alias Magma.Run
+  alias Magma.Status
   alias Magma.Store
 
   @impl true
@@ -33,20 +38,43 @@ defmodule Magma.Step.Dispatch do
     child_id = Magma.Key.child_id(parent_id, name)
     signal = signal_name(name)
 
-    :ok = ensure_started(child_id, parent_id, signal, arguments, context, options)
+    case adopt_or_start(child_id, parent_id, signal, arguments, context, options) do
+      {:ended, child} ->
+        :ok = clear_report(parent_id, signal)
+        outcome(child)
 
-    timeout = Magma.Step.Await.resolve(Keyword.get(options, :timeout), arguments, context)
-
-    await(parent_id, signal, timeout, options)
+      :under_way ->
+        timeout = Magma.Step.Await.resolve(Keyword.get(options, :timeout), arguments, context)
+        await(parent_id, signal, timeout, options)
+    end
   end
 
   # Starting is idempotent on the derived id, so a replay that gets this far finds the child
-  # already there and falls through to waiting on it.
-  defp ensure_started(child_id, parent_id, signal, arguments, context, options) do
+  # already there and reads where it stands rather than starting a second one.
+  defp adopt_or_start(child_id, parent_id, signal, arguments, context, options) do
     case Store.get_workflow(child_id) do
-      {:ok, nil} -> start(child_id, parent_id, signal, arguments, context, options)
-      {:ok, _running} -> :ok
+      {:ok, nil} ->
+        :ok = start(child_id, parent_id, signal, arguments, context, options)
+        :under_way
+
+      {:ok, child} ->
+        if Status.terminal?(child.status), do: {:ended, child}, else: :under_way
     end
+  end
+
+  defp outcome(%{status: :completed, result: result}), do: {:ok, result}
+  defp outcome(%{status: status, error: nil}), do: {:error, status}
+  defp outcome(%{status: _status, error: error}), do: {:error, error}
+
+  # A child answered from its own row leaves nothing for the parent to hold: the report it sent
+  # has been read another way, and the wait it would have answered is over.
+  defp clear_report(parent_id, signal) do
+    case Store.pending_signal(parent_id, signal) do
+      nil -> :ok
+      pending -> with {:ok, _consumed} <- Store.consume_signal(pending), do: :ok
+    end
+
+    Store.release(parent_id, signal)
   end
 
   defp start(child_id, parent_id, signal, arguments, context, options) do

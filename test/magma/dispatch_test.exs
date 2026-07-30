@@ -103,4 +103,45 @@ defmodule Magma.DispatchTest do
     assert status(spine) == :failed
     assert Effects.count(:reconcile) == 0
   end
+
+  test "a spine still fails when nothing is left to tell it its rail failed" do
+    Effects.fail_after(:rail_send, 99)
+    {:ok, spine} = Magma.start(Workflows.Spine, %{transfer_id: "t1", currency: "EUR"})
+
+    attempt(spine.id)
+    attempt(Magma.child_id(spine.id, :rail))
+    forget_report(spine.id)
+
+    attempt(spine.id)
+
+    assert status(spine) == :failed
+    assert Effects.count(:reconcile) == 0
+  end
+
+  test "a spine still gets its rail's result when nothing is left to tell it the rail finished" do
+    {:ok, spine} = Magma.start(Workflows.Spine, %{transfer_id: "t1", currency: "EUR"})
+
+    attempt(spine.id)
+    attempt(Magma.child_id(spine.id, :rail))
+    forget_report(spine.id)
+
+    attempt(spine.id)
+
+    assert status(spine) == :completed
+    assert {:rail_send, _arguments} = recorded(spine, :rail)
+    assert Effects.count(:rail_send) == 1
+  end
+
+  defp attempt(workflow_id) do
+    Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow_id}})
+  end
+
+  defp forget_report(spine_id) do
+    {:ok, _consumed} =
+      spine_id
+      |> Magma.Store.pending_signal("magma.child.:rail")
+      |> Magma.Store.consume_signal()
+
+    :ok
+  end
 end

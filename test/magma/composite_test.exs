@@ -280,6 +280,23 @@ defmodule Magma.CompositeTest do
       assert status(rail_child(workflow, 1)) == :failed
       assert status(rail_child(workflow, 2)) == :completed
     end
+
+    test "a run whose child failed alongside others still ends" do
+      Application.put_env(:magma, :test_refused_transfers, ["t2"])
+
+      {:ok, workflow} = start_three_rails()
+      run_workflows(with_recursion: false)
+
+      attempt(rail_child(workflow, 1))
+      attempt(workflow.id)
+
+      attempt(rail_child(workflow, 0))
+      attempt(rail_child(workflow, 2))
+      run_workflows()
+
+      assert status(workflow) == :failed
+      assert Effects.count(:settle) == 0
+    end
   end
 
   defp start_three_rails do

@@ -436,3 +436,28 @@ of breaking valid data.
 **Costs:** a corrupt checkpoint binary still fails to decode and `cast_stored/2` still
 reports `:error` rather than raising, but nothing now stops a checkpoint holding an atom from
 growing the atom table on every distinct value a run stores.
+
+---
+
+## 28. A dispatched child's outcome is read from the child
+
+`Magma.Step.Dispatch` derives the child's id, adopts a child already there, and asks where it
+stands. A child in a terminal state is answered from its own row — `result` on a `completed`
+one, `error` on a `failed` or `cancelled` one. The report signal is a wake-up.
+
+**Why:** a signal is consumed destructively and read once. A parent that fans out
+concurrently takes a failing child's report, returns `{:error, _}` from that element, and gets
+that error dropped: Reactor's async executor prefers a sibling's halt over an error raised in
+the same batch, and an error is not checkpointed. The next attempt re-ran the element against a
+child whose only account of itself had already been spent, so the parent parked on a report
+that would never come again and stayed there.
+
+**Falls out of it:** the terminal read is reached only in recovery — a first attempt starts the
+child and waits, and an element that resolved carries a checkpoint — so the ordinary path pays
+for nothing. An element answered from the row consumes any report still pending and gives up
+the wait, so a parent answered another way holds nothing.
+
+**Costs:** a `failed` workflow whose rollback was resumed by a later attempt reaches
+`Magma.Unwind` rather than the worker's failure path, so its `error` is never written and it
+sends no report. Such a child answers its parent with its status alone. Writing the error at
+the point the run commits to unwinding is what would close it.
