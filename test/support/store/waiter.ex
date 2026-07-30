@@ -4,6 +4,7 @@ defmodule Magma.Test.Store.Waiter do
   use Ash.Resource,
     domain: Magma.Test.Store,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [Magma.Test.Watcher],
     extensions: [Magma.Resource.Waiter]
 
   magma do

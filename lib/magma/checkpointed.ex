@@ -44,7 +44,7 @@ defmodule Magma.Checkpointed do
 
   defp handle({:ok, value}, context, name) do
     case Run.record(context, name, value) do
-      :ok -> {:ok, value}
+      {:ok, recorded} -> {:ok, recorded}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -59,7 +59,7 @@ defmodule Magma.Checkpointed do
     case Reactor.Step.compensate(inner, reason, arguments, %{context | current_step: inner}) do
       {:continue, value} ->
         case Run.record(context, name, value) do
-          :ok -> {:continue, value}
+          {:ok, recorded} -> {:continue, recorded}
           {:error, error} -> {:error, error}
         end
 

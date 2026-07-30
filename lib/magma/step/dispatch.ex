@@ -76,7 +76,7 @@ defmodule Magma.Step.Dispatch do
   defp clear_report(parent_id, signal) do
     case Store.pending_signal(parent_id, signal) do
       nil -> :ok
-      pending -> with {:ok, _consumed} <- Store.consume_signal(pending), do: :ok
+      pending -> Store.consume_signal(pending)
     end
 
     Store.release(parent_id, signal)

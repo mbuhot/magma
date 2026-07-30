@@ -4,6 +4,7 @@ defmodule Magma.Test.Store.Workflow do
   use Ash.Resource,
     domain: Magma.Test.Store,
     data_layer: AshPostgres.DataLayer,
+    notifiers: [Magma.Test.Watcher],
     extensions: [Magma.Resource.Workflow]
 
   postgres do

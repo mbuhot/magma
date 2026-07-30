@@ -59,6 +59,10 @@ plain step in the outer reactor, or under a `map`/`switch`.
 
 ## Alternative outcomes
 
+Sibling waits that depend on nothing all park on the same attempt, and a signal reaches its
+workflow whatever it is presently parked on, so independent waits are answered in whatever order
+they are told in.
+
 Two sibling `await`s on different signal names cannot both be answered — only one of the
 mutually exclusive events actually happens, so the other sits parked forever and the reactor
 never finishes. Model the choice as one wait whose outcome discriminates:
@@ -202,8 +206,15 @@ time as due now, and a snoozed `poll` reschedules its own job. Held together wit
 one, and continues without bound. Drain with recursion for ordinary progress, and use a single
 non-recursive pass to reach a scheduled wait.
 
-A snoozed `poll` otherwise sits until `Magma.Worker.perform/1` is called for its workflow or
-its scheduled time arrives.
+A snoozed `poll` otherwise sits until its scheduled time arrives, or until something calls
+`Magma.wake/1` for its workflow. A caller that has just moved the outside system a poll watches
+asks for the look with `Magma.wake/1` rather than waiting out the interval.
+
+## Where a step can run twice
+
+Two attempts of one workflow can overlap, so a step's effect can happen twice — see
+`DECISIONS.md` §32 for when, and what magma guarantees across it. A step whose effect cannot be
+repeated carries an idempotency key of its own.
 
 ## The entities
 

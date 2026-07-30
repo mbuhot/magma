@@ -4,6 +4,8 @@ defmodule Magma.Api do
   alias Magma.Store
   alias Magma.Worker
 
+  @parked [:waiting, :polling]
+
   def start(module, inputs, options) do
     attrs =
       %{
@@ -74,7 +76,7 @@ defmodule Magma.Api do
     |> Store.resource()
     |> Ash.transact(fn ->
       with {:ok, signal} <- Store.deliver_signal(workflow_id, name, payload),
-           :ok <- resume_if_parked(workflow_id, name) do
+           :ok <- resume(workflow_id) do
         signal
       end
     end)
@@ -88,15 +90,61 @@ defmodule Magma.Api do
     end
   end
 
+  @doc "Brings a parked workflow back now."
+  def wake(workflow_id) do
+    :workflow
+    |> Store.resource()
+    |> Ash.transact(fn -> resume(workflow_id) end)
+    |> case do
+      {:ok, :ok} -> :ok
+      error -> error
+    end
+  end
+
   # The signal and the job that brings the workflow back commit together, so a crash on the
   # sending side cannot leave a parked workflow with nothing coming for it.
-  defp resume_if_parked(workflow_id, name) do
-    if Store.waiting_on?(workflow_id, name) do
-      case Store.get_workflow(workflow_id) do
-        {:ok, nil} -> :ok
-        {:ok, workflow} -> with {:ok, _job} <- enqueue(workflow, []), do: :ok
-        error -> error
+  #
+  # A parked workflow gets the job whatever it is parked on, rather than only when it is parked
+  # on this name: the wait the signal answers may be one the run has not reached yet, and the
+  # attempt that reaches it needs something to run it. A workflow that is not parked already has
+  # an attempt of its own coming, and `park_or_resume/2` is what stops that attempt from parking
+  # over a signal that landed while it ran.
+  defp resume(workflow_id) do
+    case Store.lock_workflow(workflow_id) do
+      {:ok, %{status: status} = workflow} when status in @parked ->
+        with {:ok, _job} <- enqueue(workflow, []), do: :ok
+
+      {:ok, _otherwise} ->
+        :ok
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  Parks a workflow, or brings it straight back when something it waits on has already landed.
+
+  The write and the look happen together, and both sides hold the workflow's row, so a delivery
+  landing as an attempt parks is either seen by this look or sees the parked row and sends its
+  own job.
+  """
+  @spec park_or_resume(Ash.Resource.record(), [Ash.Resource.record()]) ::
+          {:ok, Ash.Resource.record()} | {:error, term()}
+  def park_or_resume(workflow, waiters) do
+    :workflow
+    |> Store.resource()
+    |> Ash.transact(fn ->
+      with {:ok, parked} <- Store.update_workflow(workflow, :set_status, %{status: :waiting}),
+           :ok <- resume_if_answered(parked, waiters) do
+        parked
       end
+    end)
+  end
+
+  defp resume_if_answered(workflow, waiters) do
+    if Enum.any?(waiters, &Store.pending_signal(workflow.id, &1.name)) do
+      with {:ok, _job} <- enqueue(workflow, []), do: :ok
     else
       :ok
     end
@@ -139,6 +187,10 @@ defmodule Magma.Api do
 
   # The magma section carries the queue and attempt policy, and an option at the call site
   # wins over it.
+  #
+  # A job already waiting its turn stands for every delivery made before it starts, so a burst
+  # of signals against one workflow is one attempt rather than a crowd of them running over each
+  # other. A job with a time to run is not one of those, and is always its own.
   defp job_options(module, options) do
     declared =
       if Code.ensure_loaded?(module) and function_exported?(module, :spark_dsl_config, 0) do
@@ -150,9 +202,18 @@ defmodule Magma.Api do
         []
       end
 
-    Keyword.merge(
-      declared,
+    declared
+    |> Keyword.merge(
       Keyword.take(options, [:queue, :max_attempts, :priority, :schedule_in, :scheduled_at])
     )
+    |> put_uniqueness()
+  end
+
+  defp put_uniqueness(options) do
+    if Keyword.take(options, [:schedule_in, :scheduled_at]) == [] do
+      Keyword.put(options, :unique, keys: [:workflow_id], states: [:available], period: :infinity)
+    else
+      options
+    end
   end
 end

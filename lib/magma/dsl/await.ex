@@ -104,7 +104,7 @@ defmodule Magma.Dsl.Await do
         await.name,
         {Magma.Step.Await, options},
         await.arguments,
-        async?: false,
+        async?: true,
         description: await.description,
         guards: await.guards,
         max_retries: 0,

@@ -32,6 +32,18 @@ defmodule Magma do
   defdelegate signal(workflow_id, name, payload \\ nil), to: Magma.Api
 
   @doc """
+  Brings a parked workflow back now, without telling it anything.
+
+  A poll is answered by what the outside system says when the run looks again, so a caller that
+  has just moved that system asks for the look rather than sending a signal. A workflow that is
+  not parked already has an attempt of its own coming and is left alone.
+
+      Magma.wake(workflow.id)
+  """
+  @spec wake(String.t()) :: :ok | {:error, term()}
+  defdelegate wake(workflow_id), to: Magma.Api
+
+  @doc """
   Stops a workflow and takes back everything it has done.
 
   A workflow that is waiting holds no process and no job, so this writes its status and

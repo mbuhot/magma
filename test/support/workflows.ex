@@ -164,7 +164,11 @@ defmodule Magma.Test.Workflows do
       wait_for(:quote)
     end
 
-    await(:confirmation, signal: "confirm", block_ms: 0)
+    await :confirmation do
+      signal("confirm")
+      block_ms(0)
+      wait_for(:ended)
+    end
 
     return(:confirmation)
   end
@@ -186,6 +190,63 @@ defmodule Magma.Test.Workflows do
     end
 
     return(:ship)
+  end
+
+  defmodule Independent do
+    @moduledoc "Two waits neither of which depends on the other, and a step needing both."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+
+    await(:left, signal: "left", block_ms: 0, timeout: 600_000)
+    await(:right, signal: "right", block_ms: 0, timeout: 600_000)
+
+    step :join, {Effect, name: :join} do
+      argument(:left, result(:left))
+      argument(:right, result(:right))
+    end
+
+    return(:join)
+  end
+
+  defmodule Watched do
+    @moduledoc "A wait nothing will push beside one that something will."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+
+    poll(:arrival, every: 60_000, until: &Magma.Test.Workflows.arrived/2)
+
+    await(:confirmation, signal: "confirm", block_ms: 0, timeout: 600_000)
+
+    step :join, {Effect, name: :join} do
+      argument(:arrival, result(:arrival))
+      argument(:confirmation, result(:confirmation))
+    end
+
+    return(:join)
+  end
+
+  defmodule Staged do
+    @moduledoc "One wait behind another, so the second is reached only once the first is answered."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+
+    await(:first, signal: "first", block_ms: 0, timeout: 600_000)
+
+    await :second do
+      signal("second")
+      block_ms(0)
+      timeout(600_000)
+      argument(:first, result(:first))
+    end
+
+    step :join, {Effect, name: :join} do
+      argument(:second, result(:second))
+    end
+
+    return(:join)
   end
 
   defmodule Lapsing do
@@ -842,6 +903,13 @@ defmodule Magma.Test.Workflows do
     end
 
     return(:after)
+  end
+
+  @doc false
+  def arrived(_arguments, _context) do
+    Effects.record(:arrival_check)
+
+    if Effects.count(:arrival_check) >= 2, do: {:ok, :arrived}, else: :not_yet
   end
 
   @doc false

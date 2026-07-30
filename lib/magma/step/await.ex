@@ -82,15 +82,22 @@ defmodule Magma.Step.Await do
     end
   end
 
+  # A signal is taken conditionally, so an attempt that finds one another attempt of the same
+  # workflow has already taken goes looking for the next.
   defp take(workflow_id, name) do
     case Store.pending_signal(workflow_id, name) do
       nil ->
         :none
 
       signal ->
-        {:ok, _consumed} = Store.consume_signal(signal)
-        :ok = Store.release(workflow_id, name)
-        {:ok, signal.payload}
+        case Store.consume_signal(signal) do
+          {:ok, _consumed} ->
+            :ok = Store.release(workflow_id, name)
+            {:ok, signal.payload}
+
+          :taken ->
+            take(workflow_id, name)
+        end
     end
   end
 

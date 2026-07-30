@@ -472,3 +472,104 @@ ending records what `Reactor.run/4` returned, a resumed rollback keeps the step 
 middleware saw. The write is skipped for a step that can compensate, since its failure may yet
 be recovered, so a rollback resumed after a compensation itself failed is what the
 `compensate_error` event covers.
+
+---
+
+## 29. Every wait ready to park parks on the same attempt
+
+`await` and `poll` are async steps, and a run's concurrency pool is sized to hold every wait its
+reactor declares on top of the ordinary one.
+
+**Why:** a halt stops the executor at the first halted step, and Reactor abandons whatever else
+was in flight. Run the waits synchronously and exactly one of them parks per attempt: the
+workflow's row then claims to be waiting on one name when the graph says it waits on four, the
+three unparked ones hold no deadline, and a `poll` that never got its turn holds no job to bring
+it back. A wait writes its waiter row before it blocks, so a wait that started has parked —
+which makes starting them all in one batch the whole of the fix. The pool is what decides how
+many start, and a parked wait holds no scheduler, so magma sizes the pool for them rather than
+leaving a wide graph to the scheduler count.
+
+**Falls out of it:** four solicitors' documents can arrive in any order, each wait's timeout runs
+from the same instant, and a `poll` beside an `await` still snoozes the job.
+
+**Costs:** waits generated at run time — inside a `map`, or by a `switch` branch — are not
+counted, since the pool is sized from the declared steps. A graph that fans out more waits than
+that at once parks what fits and reaches the rest on a later attempt.
+
+---
+
+## 30. A signal brings back a parked workflow whatever it is parked on
+
+`Magma.signal/3` enqueues the resume job for any workflow in `waiting` or `polling`, rather than
+only for one parked on that name. A workflow that is not parked holds an attempt of its own, and
+`Magma.Api.park_or_resume/2` is what stops that attempt from parking over a delivery that landed
+while it ran: the status write and the look for an answered wait happen in one transaction, and
+`Magma.signal/3` reads the workflow row `FOR UPDATE`, so the two cannot each act on what the
+other is about to write.
+
+**Why:** what a run is waiting for is not knowable from outside it. The wait a signal answers may
+be one the run has not reached, one it is parking on as the signal commits, or one a later
+attempt will reach — and a delivery that asked "are you parked on this?" first was dropped in
+every one of those cases, leaving an unconsumed signal against a workflow with no job. Nothing
+ever came for it: a click that did nothing, forever, with no error.
+
+**Falls out of it:** an attempt drains every signal it can reach, so waits are answered in
+whatever order they are told in. A resume job is deduplicated against one already waiting its
+turn, since that job stands for every delivery made before it starts — so a burst of signals
+against one workflow is one attempt rather than a crowd of them running over each other.
+
+**Costs:** a workflow parked on a name nothing will ever deliver is still woken by every other
+signal it is told, and pays a replay for each.
+
+---
+
+## 31. Engine writes settle their own races
+
+`consume_signal` is conditional on the signal being untaken, `release` treats a waiter another
+attempt already cleared as the outcome it asked for, and `record` hands the loser of a checkpoint
+collision the row that won.
+
+**Why:** two attempts of one workflow overlap — a scheduled deadline firing beside a resume, an
+async wait outliving the attempt that halted. Read-then-write against a shared row raised
+`StaleRecord` out of the middle of a step, which Reactor read as a step failure and unwound the
+whole run; a signal read twice answered two attempts with one delivery. Each of these writes now
+says what happens when it loses, and the loser carries on with what stands.
+
+**Falls out of it:** both attempts see the same output for a step, because the unique index picks
+the recording and the other attempt reads it back rather than carrying its own.
+
+**Costs:** an attempt that loses a checkpoint race has already done the step's work, so its
+effect happened twice — the at-least-once boundary, reached here by overlap rather than by a
+crash.
+
+---
+
+## 32. Two attempts of one workflow can overlap, and what that costs
+
+Magma does not hold a workflow id to one attempt at a time. Overlap arises two ways:
+
+- **A second job.** A deadline scheduled for a wait fires while a resume job runs. A resume job
+  is deduplicated against one already waiting its turn, and only a parked workflow is sent one,
+  so the ordinary path is one attempt — but a scheduled job is always its own.
+- **A task that outlived its attempt.** Reactor's executor stops at the first halted step and its
+  halt branch does not collect what is still in flight, and those steps are started with
+  `Task.Supervisor.async_nolink/5`, so they are not linked to the job process. An async step can
+  still be running after the run returned `{:halted, _}`, after the workflow parked, and after
+  the job ended. This needs no queue concurrency at all.
+
+An attempt loads its checkpoints once, at the start of the run, so for its whole length it is
+blind to what the other attempt records.
+
+**What holds anyway.** Every engine write says what happens when it loses (§31), the unique index
+keeps one recording per step, and an ending stands whatever a slower attempt goes on to do.
+
+**What it costs.** A step's effect can happen twice: two attempts both miss the same checkpoint,
+both run the step, and one of them loses the recording after its work is already done. That is
+the at-least-once boundary every durable engine draws somewhere, reached here by overlap as well
+as by a crash.
+
+**What would close it.** One attempt per workflow id needs a claim on the workflow row — an
+attempt takes it and every other job snoozes — with a lease so a dead attempt's claim expires.
+Stopping in-flight work at a halt needs Reactor to collect its running tasks on the halt path as
+it already does on the timeout path. Neither is in place. Until they are, a step whose effect
+cannot be repeated wants an idempotency key of its own.

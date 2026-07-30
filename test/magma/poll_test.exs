@@ -40,6 +40,32 @@ defmodule Magma.PollTest do
     assert Effects.count(:settlement_check) == 2
   end
 
+  test "a workflow between polls can be brought back to look again straight away" do
+    {:ok, workflow} = Magma.start(Workflows.Polling, %{order_id: "ord_1"})
+
+    Oban.drain_queue(queue: :default, with_safety: false)
+
+    assert reload(workflow).status == :polling
+
+    :ok = Magma.wake(workflow.id)
+
+    Oban.drain_queue(queue: :default, with_safety: false)
+
+    assert reload(workflow).status == :completed
+    assert Effects.count(:settlement_check) == 2
+  end
+
+  test "a poll beside a wait still holds the job that brings the workflow back" do
+    {:ok, workflow} = Magma.start(Workflows.Watched, %{order_id: "ord_1"})
+
+    Oban.drain_queue(queue: :default, with_safety: false)
+
+    kinds = workflow.id |> Store.waiters() |> Enum.map(& &1.kind) |> Enum.sort()
+
+    assert reload(workflow).status == :polling
+    assert kinds == [:poll, :signal]
+  end
+
   test "the step before a poll is not run again when the workflow comes back" do
     {:ok, workflow} = Magma.start(Workflows.Polling, %{order_id: "ord_1"})
 

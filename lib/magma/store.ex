@@ -93,6 +93,22 @@ defmodule Magma.Store do
     Ash.get(resource(:workflow), id, authorize?: false, error?: false)
   end
 
+  @doc """
+  One workflow by id, held against anything else that would move it.
+
+  Only meaningful inside a transaction, and what it buys is that a delivery deciding whether to
+  bring a workflow back and an attempt deciding to park it cannot each act on what the other
+  is about to write.
+  """
+  @spec lock_workflow(String.t()) :: {:ok, Ash.Resource.record() | nil} | {:error, term()}
+  def lock_workflow(id) do
+    :workflow
+    |> resource()
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+  end
+
   @doc "Moves a workflow to a state, or to a terminal one carrying its outcome."
   @spec update_workflow(Ash.Resource.record(), atom(), map()) ::
           {:ok, Ash.Resource.record()} | {:error, term()}
@@ -148,18 +164,37 @@ defmodule Magma.Store do
     |> Ash.read!(authorize?: false)
   end
 
-  @doc "Writes what a step produced."
+  @doc """
+  Writes what a step produced.
+
+  Two attempts of one workflow can reach the same step, and the unique index settles which
+  recording stands. The attempt that lost is handed the one that won, so both carry the same
+  output on to everything downstream.
+  """
   @spec record(String.t(), term(), term()) :: {:ok, Ash.Resource.record()} | {:error, term()}
   def record(workflow_id, name, output) do
+    key = Magma.Key.for(name)
+
     :checkpoint
     |> resource()
     |> Ash.Changeset.for_create(:record, %{
       workflow_id: workflow_id,
-      step_key: Magma.Key.for(name),
+      step_key: key,
       step_label: Magma.Key.label(name),
       output: output
     })
     |> Ash.create(authorize?: false)
+    |> case do
+      {:ok, checkpoint} -> {:ok, checkpoint}
+      {:error, error} -> adopt(workflow_id, key, error)
+    end
+  end
+
+  defp adopt(workflow_id, key, error) do
+    case workflow_id |> standing() |> Enum.find(&(&1.step_key == key)) do
+      nil -> {:error, error}
+      checkpoint -> {:ok, checkpoint}
+    end
   end
 
   @doc """
@@ -211,12 +246,22 @@ defmodule Magma.Store do
     |> List.first()
   end
 
-  @doc "Takes a signal, so a second delivery of the name stays distinct from this one."
-  @spec consume_signal(Ash.Resource.record()) :: {:ok, Ash.Resource.record()} | {:error, term()}
+  @doc """
+  Takes a signal, so a second delivery of the name stays distinct from this one.
+
+  Conditional on the signal still being untaken, so two attempts of one workflow reaching the
+  same wait cannot both be answered by it. The one that loses is told, and looks for the next.
+  """
+  @spec consume_signal(Ash.Resource.record()) :: {:ok, Ash.Resource.record()} | :taken
   def consume_signal(signal) do
     signal
     |> Ash.Changeset.for_update(:consume, %{})
+    |> Ash.Changeset.filter(Ash.Expr.expr(is_nil(consumed_at)))
     |> Ash.update(authorize?: false)
+    |> case do
+      {:ok, consumed} -> {:ok, consumed}
+      {:error, _stale} -> :taken
+    end
   end
 
   @doc "Records a signal for a workflow."
@@ -275,7 +320,7 @@ defmodule Magma.Store do
     workflow_id
     |> waiters()
     |> Enum.filter(&(&1.name == name))
-    |> Enum.each(&Ash.destroy!(&1, authorize?: false))
+    |> Enum.each(&forget/1)
 
     :ok
   end
@@ -290,10 +335,23 @@ defmodule Magma.Store do
   def release_all(workflow_id) do
     workflow_id
     |> waiters()
-    |> Enum.each(&Ash.destroy!(&1, authorize?: false))
+    |> Enum.each(&forget/1)
 
     :ok
   end
+
+  # A wait is read and then cleared, and another attempt of the same workflow can clear it in
+  # between. A row already gone is the outcome this asked for, so it is not an error.
+  defp forget(waiter) do
+    case Ash.destroy(waiter, authorize?: false) do
+      :ok -> :ok
+      {:error, error} -> if gone?(error), do: :ok, else: raise(error)
+    end
+  end
+
+  defp gone?(%Ash.Error.Changes.StaleRecord{}), do: true
+  defp gone?(%{errors: errors}) when is_list(errors), do: Enum.any?(errors, &gone?/1)
+  defp gone?(_error), do: false
 
   defp no_resource_message(role, domain, extension) do
     """

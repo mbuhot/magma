@@ -78,7 +78,7 @@ defmodule Magma.Dsl.Poll do
         poll.name,
         {Magma.Step.Poll, until: poll.until, every: poll.every},
         poll.arguments,
-        async?: false,
+        async?: true,
         description: poll.description,
         guards: poll.guards,
         max_retries: 0,

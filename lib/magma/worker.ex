@@ -108,7 +108,7 @@ defmodule Magma.Worker do
   defp park(workflow, waiters) do
     case Enum.filter(waiters, &(&1.kind == :poll)) do
       [] ->
-        {:ok, _waiting} = Store.update_workflow(workflow, :set_status, %{status: :waiting})
+        {:ok, _waiting} = Magma.Api.park_or_resume(workflow, waiters)
         :ok
 
       polls ->

@@ -62,6 +62,107 @@ defmodule Magma.AwaitTest do
     assert Store.waiters(workflow.id) == []
   end
 
+  test "waits that depend on nothing all park together" do
+    {:ok, workflow} = Magma.start(Workflows.Independent, %{order_id: "ord_1"})
+
+    drain()
+
+    names = workflow.id |> Store.waiters() |> Enum.map(& &1.name) |> Enum.sort()
+
+    assert reload(workflow).status == :waiting
+    assert names == ["left", "right"]
+  end
+
+  test "waits that park together are answered in whatever order they are answered" do
+    {:ok, workflow} = Magma.start(Workflows.Independent, %{order_id: "ord_1"})
+    drain()
+
+    {:ok, _right} = Magma.signal(workflow.id, "right", :yes)
+    drain()
+    {:ok, _left} = Magma.signal(workflow.id, "left", :yes)
+    drain()
+
+    assert reload(workflow).status == :completed
+    assert Effects.count(:join) == 1
+  end
+
+  test "a wait that has been answered is not parked on again" do
+    {:ok, workflow} = Magma.start(Workflows.Independent, %{order_id: "ord_1"})
+    drain()
+
+    {:ok, _left} = Magma.signal(workflow.id, "left", :yes)
+    drain()
+
+    names = workflow.id |> Store.waiters() |> Enum.map(& &1.name)
+    recorded = workflow.id |> Store.standing() |> Enum.map(& &1.step_label)
+
+    assert reload(workflow).status == :waiting
+    assert names == ["right"]
+    assert recorded == [":left"]
+  end
+
+  test "what the engine writes reaches the application as it happens" do
+    :ok = Magma.Test.Watcher.watch()
+
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+    drain()
+
+    {:ok, _signal} = Magma.signal(workflow.id, "confirm", %{approver: "sam"})
+    drain()
+
+    assert reload(workflow).status == :completed
+    assert_received {:magma_wrote, Magma.Test.Store.Waiter, :park}
+    assert_received {:magma_wrote, Magma.Test.Store.Waiter, :release}
+    assert_received {:magma_wrote, Magma.Test.Store.Workflow, :set_status}
+    assert_received {:magma_wrote, Magma.Test.Store.Workflow, :complete}
+    assert_received {:magma_wrote, Magma.Test.Store.Checkpoint, :record}
+  end
+
+  defp available_jobs do
+    Enum.filter(all_enqueued(worker: Magma.Worker), &(&1.state == "available"))
+  end
+
+  test "a workflow parked on one wait is still brought back by a signal for another" do
+    {:ok, workflow} = Magma.start(Workflows.Staged, %{order_id: "ord_1"})
+    drain()
+
+    assert reload(workflow).status == :waiting
+    assert available_jobs() == []
+
+    {:ok, _second} = Magma.signal(workflow.id, "second", :yes)
+
+    assert [job] = available_jobs()
+    assert job.args["workflow_id"] == workflow.id
+  end
+
+  test "a workflow told something as it was parking does not stay parked" do
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+    drain()
+
+    {:ok, _landed} = Store.deliver_signal(workflow.id, "confirm", %{approver: "sam"})
+
+    assert available_jobs() == []
+
+    {:ok, parked} = Magma.fetch(workflow.id)
+    {:ok, _reparked} = Magma.Api.park_or_resume(parked, Store.waiters(workflow.id))
+
+    assert [job] = available_jobs()
+    assert job.args["workflow_id"] == workflow.id
+  end
+
+  test "waits reached one after another are answered whichever order they are told in" do
+    {:ok, workflow} = Magma.start(Workflows.Staged, %{order_id: "ord_1"})
+    drain()
+
+    {:ok, _second} = Magma.signal(workflow.id, "second", :yes)
+    drain()
+    {:ok, _first} = Magma.signal(workflow.id, "first", :yes)
+    drain()
+
+    assert reload(workflow).status == :completed
+    assert Effects.count(:join) == 1
+  end
+
   defp lapse(workflow_id, signal) do
     past = DateTime.add(DateTime.utc_now(), -1, :second)
     {:ok, _aged} = Store.park(workflow_id, signal, :signal, past)
@@ -70,6 +171,25 @@ defmodule Magma.AwaitTest do
 
   defp resume(workflow_id) do
     Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow_id}})
+  end
+
+  test "attempts of one workflow running at the same time do not collide" do
+    {:ok, workflow} = Magma.start(Workflows.Independent, %{order_id: "ord_1"})
+    drain()
+
+    {:ok, _left} = Magma.signal(workflow.id, "left", :yes)
+    {:ok, _right} = Magma.signal(workflow.id, "right", :yes)
+
+    outcomes =
+      1..4
+      |> Task.async_stream(fn _attempt -> resume(workflow.id) end, ordered: false)
+      |> Enum.map(fn {:ok, outcome} -> outcome end)
+
+    labels = workflow.id |> Store.standing() |> Enum.map(& &1.step_label)
+
+    assert reload(workflow).status == :completed
+    assert Enum.sort(labels) == [":join", ":left", ":right"]
+    refute Enum.any?(outcomes, &match?({:error, _reason}, &1))
   end
 
   test "a wait that goes unanswered past its window fails the workflow" do

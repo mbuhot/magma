@@ -33,11 +33,33 @@ defmodule Magma.Run do
       tenant: workflow.tenant
     }
 
-    workflow.module
-    |> Reactor.Info.to_struct!()
-    |> decorate(context)
-    |> Reactor.run(workflow.inputs || %{}, context, options)
+    reactor =
+      workflow.module
+      |> Reactor.Info.to_struct!()
+      |> decorate(context)
+
+    options = Keyword.put_new_lazy(options, :max_concurrency, fn -> concurrency(reactor) end)
+
+    Reactor.run(reactor, workflow.inputs || %{}, context, options)
   end
+
+  # Every wait a run could be parked on at once needs a slot of its own. Reactor starts as many
+  # ready steps as the pool allows and stops the run at the first halt, so a wait left out of
+  # that batch never records what it is waiting for, and nothing brings the workflow back to it.
+  # A parked wait holds no scheduler, so the pool is the ordinary one with room for all of them.
+  defp concurrency(reactor) do
+    System.schedulers_online() + Enum.count(reactor.steps, &waits?/1)
+  end
+
+  defp waits?(%Reactor.Step{impl: {Magma.Checkpointed, options}}) do
+    case Keyword.get(options, :magma_inner) do
+      {Magma.Step.Await, _await} -> true
+      {Magma.Step.Poll, _poll} -> true
+      _other -> false
+    end
+  end
+
+  defp waits?(_step), do: false
 
   @doc "Wraps every step, rewrites its guards, and seeds the context."
   @spec decorate(Reactor.t(), map()) :: Reactor.t()
@@ -129,11 +151,16 @@ defmodule Magma.Run do
 
   def recorded(_context, _name), do: :miss
 
-  @doc "Writes what a step produced."
-  @spec record(map(), term(), term()) :: :ok | {:error, term()}
+  @doc """
+  Writes what a step produced, answering with the output that stands.
+
+  What stands is what this wrote, unless another attempt of the same workflow got there first,
+  in which case it is what that attempt wrote.
+  """
+  @spec record(map(), term(), term()) :: {:ok, term()} | {:error, term()}
   def record(%{magma: %__MODULE__{workflow_id: workflow_id}}, name, output) do
     case Store.record(workflow_id, name, output) do
-      {:ok, _checkpoint} -> :ok
+      {:ok, checkpoint} -> {:ok, checkpoint.output}
       {:error, reason} -> {:error, reason}
     end
   end

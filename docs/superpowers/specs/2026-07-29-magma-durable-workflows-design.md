@@ -310,10 +310,10 @@ allocated in execution order:
 dies: the next attempt fast-forwards the recorded branch and re-runs the other from where
 it stood.
 
-**In flight at halt time.** Reactor waits `halt_timeout` (5s by default) for async steps,
-so those that finish get checkpointed. Steps still running past it are abandoned and run
-again on the next attempt — at-least-once side effects, the boundary every durable engine
-draws somewhere.
+**In flight at halt time.** Reactor's halt path abandons async steps where they stand, and
+they are not linked to the job process, so one can still be running after the workflow has
+parked. A step whose checkpoint was not written runs again on the next attempt —
+at-least-once side effects, the boundary every durable engine draws somewhere.
 
 **Where order still bites.** `map` keys its generated steps by index, so its source has to
 be stably ordered. A `map` over a read action with no `sort` can hand element 3 a
