@@ -236,10 +236,16 @@ defmodule Magma.Store do
     |> Ash.read!(authorize?: false)
   end
 
+  @doc "The wait a workflow holds on a name, if it holds one."
+  @spec waiter(String.t(), String.t()) :: Ash.Resource.record() | nil
+  def waiter(workflow_id, name) do
+    workflow_id |> waiters() |> Enum.find(&(&1.name == name))
+  end
+
   @doc "Whether a workflow is parked on a name."
   @spec waiting_on?(String.t(), String.t()) :: boolean()
   def waiting_on?(workflow_id, name) do
-    Enum.any?(waiters(workflow_id), &(&1.name == name))
+    waiter(workflow_id, name) != nil
   end
 
   @doc "Clears a wait that has been answered."

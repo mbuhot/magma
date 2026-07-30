@@ -188,6 +188,30 @@ defmodule Magma.Test.Workflows do
     return(:ship)
   end
 
+  defmodule Lapsing do
+    @moduledoc "A wait whose deadline yields `:timeout` for the rest of the run to read."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    await(:confirmation,
+      signal: "confirm",
+      block_ms: 0,
+      timeout: 600_000,
+      on_timeout: :return
+    )
+
+    step :ship, {Effect, name: :ship} do
+      argument(:confirmation, result(:confirmation))
+    end
+
+    return(:ship)
+  end
+
   defmodule Polling do
     @moduledoc false
     use Reactor, extensions: [Magma.Dsl]

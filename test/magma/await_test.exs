@@ -62,6 +62,60 @@ defmodule Magma.AwaitTest do
     assert Store.waiters(workflow.id) == []
   end
 
+  defp lapse(workflow_id, signal) do
+    past = DateTime.add(DateTime.utc_now(), -1, :second)
+    {:ok, _aged} = Store.park(workflow_id, signal, :signal, past)
+    :ok
+  end
+
+  defp resume(workflow_id) do
+    Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow_id}})
+  end
+
+  test "a wait that goes unanswered past its window fails the workflow" do
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+    drain()
+
+    :ok = lapse(workflow.id, "confirm")
+    resume(workflow.id)
+
+    failed = reload(workflow)
+
+    assert failed.status == :failed
+    assert Exception.message(failed.error) =~ ~s(waiting for "confirm" reached its deadline)
+    assert Effects.count(:ship) == 0
+    assert Store.waiters(workflow.id) == []
+  end
+
+  test "a wait told to give up hands the rest of the run a timeout to read" do
+    {:ok, workflow} = Magma.start(Workflows.Lapsing, %{order_id: "ord_1"})
+    drain()
+
+    :ok = lapse(workflow.id, "confirm")
+    resume(workflow.id)
+
+    done = reload(workflow)
+
+    confirmation =
+      workflow.id |> Store.standing() |> Enum.find(&(&1.step_label == ":confirmation"))
+
+    assert done.status == :completed
+    assert confirmation.output == :timeout
+    assert Effects.count(:ship) == 1
+  end
+
+  test "coming back to a wait still inside its window leaves it waiting on one visit" do
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+    drain()
+
+    [before] = all_enqueued(worker: Magma.Worker)
+
+    resume(workflow.id)
+
+    assert reload(workflow).status == :waiting
+    assert [^before] = all_enqueued(worker: Magma.Worker)
+  end
+
   test "a signal wakes a parked workflow and it carries on" do
     {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
     drain()

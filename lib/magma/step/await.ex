@@ -9,6 +9,10 @@ defmodule Magma.Step.Await do
 
   Past the window it halts. The workflow becomes a row holding no process and no job, and
   `Magma.signal/3` brings it back.
+
+  A `timeout` is measured once, when the wait first parks, and the waiter row holds it. Every
+  later attempt reads that same instant back, so the deadline stands however often the wait is
+  revisited, and the run fails or yields `:timeout` at it.
   """
 
   use Reactor.Step
@@ -31,9 +35,7 @@ defmodule Magma.Step.Await do
   end
 
   defp park_and_block(workflow_id, name, options) do
-    deadline = deadline(options)
-    {:ok, _waiter} = Store.park(workflow_id, name, :signal, deadline)
-    :ok = Magma.Api.schedule_timeout(workflow_id, deadline)
+    deadline = park(workflow_id, name, options)
 
     Magma.Notifier.listen(workflow_id, name)
 
@@ -99,6 +101,22 @@ defmodule Magma.Step.Await do
     case Keyword.get(options, :block_ms) do
       nil -> Application.get_env(:magma, :block_ms, @default_block_ms)
       ms -> ms
+    end
+  end
+
+  # The deadline of a wait already parked is the one it was parked with, so a window measured
+  # once is the window every later attempt reads. A fresh one is measured only by the attempt
+  # that parks, which is also the only attempt that needs a job scheduled at it.
+  defp park(workflow_id, name, options) do
+    case Store.waiter(workflow_id, name) do
+      %{deadline: deadline} ->
+        deadline
+
+      nil ->
+        deadline = deadline(options)
+        {:ok, _waiter} = Store.park(workflow_id, name, :signal, deadline)
+        :ok = Magma.Api.schedule_timeout(workflow_id, deadline)
+        deadline
     end
   end
 
