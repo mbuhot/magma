@@ -7,6 +7,13 @@ defmodule AgencyWeb.ListingLiveTest do
     Agency.Seeds.seed!()
   end
 
+  defp the_sale_workflow(agreement) do
+    agreement.id
+    |> AgencyWeb.ListingLive.Workflows.engagement_id()
+    |> Magma.child_id(:campaign)
+    |> Magma.child_id(:sale_attempt)
+  end
+
   defp listing_named(address) do
     Sale.list_agreements!(load: [:property]) |> Enum.find(&(&1.property.address == address))
   end
@@ -181,7 +188,7 @@ defmodule AgencyWeb.ListingLiveTest do
   test "resolving every condition moves the listing to awaiting settlement", %{conn: conn} do
     seed()
     ardoyne = listing_named("22 Ardoyne Road")
-    run_agency_after(120)
+    let_the_wait_lapse(the_sale_workflow(ardoyne), "cooling_off.rescission")
 
     {:ok, view, html} = live(conn, ~p"/listings/#{ardoyne.id}")
     assert html =~ "Conditions to satisfy"

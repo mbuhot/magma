@@ -36,16 +36,6 @@ if config_env() == :test do
   config :agency, AgencyWeb.Endpoint, server: false, http: [port: 4002]
   config :magma, block_ms: 0
 
-  config :agency,
-    offer_response_window_ms: 1_500,
-    offer_deadline_window_ms: 1_500,
-    auction_day_window_ms: 60_000,
-    cooling_off_day_ms: 20,
-    agency_term_window_ms: 60,
-    condition_window_ms: 60_000,
-    settlement_window_ms: 60_000,
-    poll_interval_ms: 20
-
   config :ash, :missed_notifications, :ignore
   config :logger, level: :warning
 end

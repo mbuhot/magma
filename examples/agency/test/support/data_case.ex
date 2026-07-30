@@ -6,6 +6,9 @@ defmodule Agency.DataCase do
   alias Agency.Sale.AgencyAgreement
   alias Agency.Sale.SaleAttempt
   alias Agency.Sale.Window
+  alias Magma.Store
+
+  @desk_turns 25
 
   using do
     quote do
@@ -84,23 +87,45 @@ defmodule Agency.DataCase do
     })
   end
 
+  @doc "Every generation the listing has opened, in the order the agent reached them."
+  def the_generations(agreement) do
+    agreement.id |> Sale.attempts_for_agreement!() |> Enum.map(& &1.generation) |> Enum.sort()
+  end
+
   @doc "The generation of the listing's campaign the agent is up to."
   def the_attempt(agreement, generation) do
     agreement.id
     |> Sale.attempts_for_agreement!()
     |> Enum.find(&(&1.generation == generation))
+    |> case do
+      nil -> raise missing(agreement, generation)
+      attempt -> attempt
+    end
   end
 
   @doc "The contract the given generation exchanged."
-  def the_contract(attempt), do: attempt.id |> Sale.contracts_for_attempt!() |> List.first()
+  def the_contract(attempt) do
+    case attempt.id |> Sale.contracts_for_attempt!() |> List.first() do
+      nil -> raise unexchanged(attempt)
+      contract -> contract
+    end
+  end
 
   @doc "The deposit held against the contract the given generation exchanged."
   def the_deposit(attempt) do
-    attempt |> the_contract() |> Map.fetch!(:id) |> Sale.deposits_for_contract!() |> List.first()
+    case attempt |> the_contract() |> Map.fetch!(:id) |> Sale.deposits_for_contract!() do
+      [] -> raise "#{describe(attempt)} has exchanged a contract that holds no deposit"
+      [deposit | _rest] -> deposit
+    end
   end
 
   @doc "The commission the given generation earned."
-  def the_commission(attempt), do: attempt.id |> Sale.commissions_for_attempt!() |> List.first()
+  def the_commission(attempt) do
+    case attempt.id |> Sale.commissions_for_attempt!() |> List.first() do
+      nil -> raise "#{describe(attempt)} has earned no commission"
+      commission -> commission
+    end
+  end
 
   @doc "The offers the given generation is holding, dearest first."
   def the_offers(attempt), do: Sale.offers_for_attempt!(attempt.id)
@@ -127,30 +152,98 @@ defmodule Agency.DataCase do
     |> Enum.any?(&(&1.workflow_id == workflow_id and &1.name == name))
   end
 
-  @doc "Runs everything the agency has ready, whichever desk it sits on."
+  @doc """
+  Runs everything the agency has ready, whichever desk it sits on, until both desks are clear.
+
+  A workflow finishing on one desk is work arriving on the other, so the desks are worked in
+  turn until a turn finds nothing left to run.
+  """
   def run_agency do
-    Enum.each(1..3, fn _pass ->
-      Magma.Testing.run_workflows(queue: :compliance)
-      Magma.Testing.run_workflows(queue: :sales)
-    end)
+    work_both_desks(@desk_turns)
   end
 
   @doc """
-  Comes back to the agency's workflows once the given window has run out.
+  Runs a wait's window out and brings its workflow back to find the window gone.
 
-  Only the timeout due at this moment is forced; anything it goes on to dispatch is picked up
-  by the ordinary pass after, so a poll newly started in the same beat gets to wait its turn
-  rather than being forced to check again before any real time has passed.
+  The window a wait was parked with is deployment policy, so it is moved rather than waited
+  out: the wait keeps its identity and the workflow reaches its timeout branch on the next
+  attempt of it.
   """
-  def run_agency_after(window_ms) do
-    Process.sleep(window_ms + 40)
-    Magma.Testing.run_workflows(queue: :sales, with_scheduled: true, with_recursion: false)
-    run_agency()
+  def let_the_wait_lapse(workflow, name) when is_map(workflow) do
+    let_the_wait_lapse(workflow.id, name)
+  end
+
+  def let_the_wait_lapse(workflow_id, name) when is_binary(workflow_id) do
+    case Store.waiter(workflow_id, name) do
+      nil ->
+        raise "#{workflow_id} is not parked on #{name}, it holds #{parked_on(workflow_id)}"
+
+      %{kind: :poll} ->
+        raise "#{name} is a poll, which never runs out; move its external state and nudge instead"
+
+      %{kind: :signal} ->
+        {:ok, _lapsed} = Store.park(workflow_id, name, :signal, a_moment_ago())
+        nudge(workflow_id)
+        assert_the_wait_is_over(workflow_id, name)
+    end
   end
 
   @doc "Forces a workflow parked on a poll to check the external system again, without waiting out its interval."
   def nudge(workflow_id) do
     Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow_id}})
     run_agency()
+  end
+
+  defp work_both_desks(0) do
+    raise """
+    the agency was still finding work to run after #{@desk_turns} turns over its desks.
+
+    Either a workflow is dispatching without ever settling, or #{@desk_turns} turns is no
+    longer enough to carry a chain from one desk to the other.
+    """
+  end
+
+  defp work_both_desks(turns_left) do
+    compliance = Magma.Testing.run_workflows(queue: :compliance)
+    sales = Magma.Testing.run_workflows(queue: :sales)
+
+    if clear?(compliance) and clear?(sales) do
+      :ok
+    else
+      work_both_desks(turns_left - 1)
+    end
+  end
+
+  defp clear?(drained), do: drained |> Map.values() |> Enum.sum() == 0
+
+  defp a_moment_ago, do: DateTime.add(DateTime.utc_now(), -1, :second)
+
+  defp assert_the_wait_is_over(workflow_id, name) do
+    if Store.waiter(workflow_id, name) do
+      raise "#{workflow_id} is still parked on #{name} after its window ran out"
+    end
+
+    :ok
+  end
+
+  defp parked_on(workflow_id) do
+    case Store.waiters(workflow_id) do
+      [] -> "nothing, and stands at #{inspect(Magma.Testing.status(workflow_id))}"
+      waiters -> Enum.map_join(waiters, ", ", & &1.name)
+    end
+  end
+
+  defp missing(agreement, generation) do
+    "this listing has no generation #{generation}, only #{inspect(the_generations(agreement))}"
+  end
+
+  defp unexchanged(attempt) do
+    "#{describe(attempt)} has exchanged no contract"
+  end
+
+  defp describe(attempt) do
+    reloaded = Sale.get_attempt!(attempt.id)
+
+    "generation #{reloaded.generation}, which stands at #{inspect(reloaded.outcome)},"
   end
 end

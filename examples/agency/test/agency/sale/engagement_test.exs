@@ -5,11 +5,7 @@ defmodule Agency.Sale.EngagementTest do
   alias Agency.Pexa
   alias Agency.Sale
   alias Agency.Sale.Engagement
-  alias Agency.Sale.Jurisdiction
-  alias Agency.Sale.Window
   alias Agency.Titles
-
-  @vic_cooling_off Window.cooling_off(Jurisdiction.cooling_off(:vic).business_days)
 
   defp engage(agreement) do
     {:ok, workflow} =
@@ -90,7 +86,7 @@ defmodule Agency.Sale.EngagementTest do
     assert contract.buyer_id == buyer.id
     assert the_deposit(attempt).amount == 94_000_00
 
-    run_agency_after(@vic_cooling_off)
+    let_the_wait_lapse(sale, "cooling_off.rescission")
 
     assert recorded(sale, :rescission) == :timeout
 
@@ -129,7 +125,7 @@ defmodule Agency.Sale.EngagementTest do
 
     assert status(workflow) == :waiting
 
-    run_agency_after(Window.agency_term())
+    let_the_wait_lapse(the_campaign(workflow), "campaign.outcome")
 
     assert status(workflow) == :completed
     assert result(workflow) == %{outcome: :expired}
@@ -196,7 +192,7 @@ defmodule Agency.Sale.EngagementTest do
 
     relaunched = Magma.child_id(campaign, :relaunch)
 
-    assert the_attempt(agreement, 2) == nil
+    assert the_generations(agreement) == [1]
     assert waiting?(relaunched, "campaign.outcome")
     assert recorded(relaunched, :launch).address == "31 Rosebank Avenue"
 

@@ -115,21 +115,13 @@ defmodule Agency.Sale.NegotiationTest do
   end
 
   test "an offer nobody answers before it expires lapses", context do
-    %{attempt: attempt, buyer: buyer} = context
-
-    offer =
-      an_offer_expiring_at(
-        attempt,
-        buyer,
-        880_000_00,
-        DateTime.add(DateTime.utc_now(), 2, :second)
-      )
+    %{offer: offer} = context
 
     workflow = negotiate(offer)
 
     assert status(workflow) == :waiting
 
-    run_agency_after(2_000)
+    let_the_wait_lapse(workflow, "negotiation.response")
 
     assert status(workflow) == :completed
     assert recorded(workflow, :outcome) == %{outcome: :no_sale, reason: :lapsed}

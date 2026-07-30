@@ -5,11 +5,7 @@ defmodule Agency.Sale.AttemptTest do
   alias Agency.Pexa
   alias Agency.Sale
   alias Agency.Sale.Attempt
-  alias Agency.Sale.Jurisdiction
-  alias Agency.Sale.Window
   alias Agency.Titles
-
-  @vic_cooling_off Window.cooling_off(Jurisdiction.cooling_off(:vic).business_days)
 
   defp start_attempt(attempt) do
     {:ok, workflow} = Magma.start(Attempt, %{sale_attempt_id: attempt.id}, queue: :sales)
@@ -24,7 +20,7 @@ defmodule Agency.Sale.AttemptTest do
     run_agency()
   end
 
-  defp let_cooling_off_lapse, do: run_agency_after(@vic_cooling_off)
+  defp let_cooling_off_lapse(workflow), do: let_the_wait_lapse(workflow, "cooling_off.rescission")
 
   defp answer_the_conditions(workflow, attempt, finance_decision) do
     conditions = Magma.child_id(workflow.id, :conditions)
@@ -128,7 +124,7 @@ defmodule Agency.Sale.AttemptTest do
       assert recorded(workflow, :sale).governing_window == :vic
       assert the_contract(attempt).price == top_bid.amount
 
-      let_cooling_off_lapse()
+      let_cooling_off_lapse(workflow)
 
       assert recorded(workflow, :rescission) == :timeout
       assert status(Magma.child_id(workflow.id, :conditions)) == :polling
@@ -143,7 +139,7 @@ defmodule Agency.Sale.AttemptTest do
 
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
-      let_cooling_off_lapse()
+      let_cooling_off_lapse(workflow)
       answer_the_conditions(workflow, attempt, :approved)
 
       awaiting_settlement = the_commission(attempt)
@@ -168,7 +164,7 @@ defmodule Agency.Sale.AttemptTest do
 
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
-      let_cooling_off_lapse()
+      let_cooling_off_lapse(workflow)
       answer_the_conditions(workflow, attempt, :approved)
 
       assert the_commission(attempt).outcome == :accrued
@@ -216,7 +212,7 @@ defmodule Agency.Sale.AttemptTest do
       assert reload(attempt).outcome == :rescinded
       assert the_register_status(rescinding_buyer) == :rescinded
 
-      assert the_attempt(agreement, 2) == nil
+      assert the_generations(agreement) == [1]
       assert status(workflow) == :waiting
       assert waiting?(workflow, "succession.decision")
     end
@@ -277,7 +273,7 @@ defmodule Agency.Sale.AttemptTest do
 
       assert status(workflow) == :completed
       assert result(workflow) == %{outcome: :relaunch}
-      assert the_attempt(agreement, 2) == nil
+      assert the_generations(agreement) == [1]
     end
   end
 
@@ -296,11 +292,10 @@ defmodule Agency.Sale.AttemptTest do
         Magma.signal(workflow.id, "cooling_off.rescission", %{buyer_id: rescinding_buyer.id})
 
       run_agency()
-      run_agency_after(50)
 
       assert status(workflow) == :completed
       assert result(workflow) == %{outcome: :no_sale, reason: :undecided}
-      assert the_attempt(agreement, 2) == nil
+      assert the_generations(agreement) == [1]
     end
   end
 
@@ -312,7 +307,7 @@ defmodule Agency.Sale.AttemptTest do
 
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
-      let_cooling_off_lapse()
+      let_cooling_off_lapse(workflow)
 
       conditions = Magma.child_id(workflow.id, :conditions)
       contract_id = the_contract(attempt).id
@@ -343,7 +338,7 @@ defmodule Agency.Sale.AttemptTest do
 
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
-      let_cooling_off_lapse()
+      let_cooling_off_lapse(workflow)
       answer_the_conditions(workflow, attempt, :declined)
 
       assert the_deposit(attempt).status == :refunded
@@ -374,7 +369,7 @@ defmodule Agency.Sale.AttemptTest do
 
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
-      let_cooling_off_lapse()
+      let_cooling_off_lapse(workflow)
       answer_the_conditions(workflow, attempt, :approved)
       report_settlement(workflow, attempt, :buyer_default)
 
@@ -425,7 +420,7 @@ defmodule Agency.Sale.AttemptTest do
       assert status(workflow) == :completed
       assert result(workflow) == %{outcome: :no_sale, reason: :register_exhausted}
       assert the_attempt(agreement, 2).outcome == :no_offers
-      assert the_attempt(agreement, 3) == nil
+      assert the_generations(agreement) == [1, 2]
     end
   end
 
@@ -437,7 +432,7 @@ defmodule Agency.Sale.AttemptTest do
 
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
-      let_cooling_off_lapse()
+      let_cooling_off_lapse(workflow)
       conditions = answer_the_conditions(workflow, attempt, :approved)
       report_settlement(workflow, attempt, :settled)
 
