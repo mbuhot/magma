@@ -14,15 +14,34 @@ defmodule Magma.Worker do
   @terminal [:completed, :failed, :cancelled]
 
   @impl true
-  def perform(%Oban.Job{args: %{"workflow_id" => workflow_id}}) do
+  def perform(%Oban.Job{id: job_id, args: %{"workflow_id" => workflow_id}}) do
     case Store.get_workflow(workflow_id) do
       {:ok, nil} -> {:cancel, "magma has no workflow #{workflow_id}"}
-      {:ok, workflow} -> run(workflow)
+      {:ok, workflow} -> attempt(workflow, job_id)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp run(%{status: status} = workflow) when status in @terminal, do: already_ended(workflow)
+  defp attempt(%{status: status} = workflow, _job_id) when status in @terminal,
+    do: already_ended(workflow)
+
+  # A workflow is held to one attempt at a time. A job that finds it taken comes back rather than
+  # running beside the attempt that has it: the wake-up it carries is a job in the queue, and
+  # Oban lifts a snoozed job's ceiling, so waiting its turn costs it nothing.
+  #
+  # The claim is given back after the attempt has written where it stands, so a delivery landing
+  # in between sees a workflow that is held and sends a job for it.
+  defp attempt(workflow, job_id) do
+    case Store.claim_workflow(workflow, job_id, Magma.Api.lease_ms(workflow.module)) do
+      {:ok, claimed} ->
+        outcome = run(claimed)
+        :ok = Store.release_claim(claimed)
+        outcome
+
+      :taken ->
+        {:snooze, 1}
+    end
+  end
 
   defp run(%{status: :unwinding} = workflow), do: unwind(workflow, :fail)
   defp run(%{status: :cancelling} = workflow), do: unwind(workflow, :cancelled)
@@ -108,7 +127,7 @@ defmodule Magma.Worker do
   defp park(workflow, waiters) do
     case Enum.filter(waiters, &(&1.kind == :poll)) do
       [] ->
-        {:ok, _waiting} = Magma.Api.park_or_resume(workflow, waiters)
+        {:ok, _waiting} = Store.update_workflow(workflow, :set_status, %{status: :waiting})
         :ok
 
       polls ->

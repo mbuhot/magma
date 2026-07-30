@@ -135,19 +135,26 @@ defmodule Magma.AwaitTest do
     assert job.args["workflow_id"] == workflow.id
   end
 
-  test "a workflow told something as it was parking does not stay parked" do
+  test "a workflow with an attempt already under way is still sent a job for what it is told" do
     {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
-    drain()
+    {:ok, _claimed} = Store.claim_workflow(workflow, 1, 60_000)
 
-    {:ok, _landed} = Store.deliver_signal(workflow.id, "confirm", %{approver: "sam"})
+    Oban.drain_queue(queue: :default, with_recursion: false, with_safety: false)
 
-    assert available_jobs() == []
-
-    {:ok, parked} = Magma.fetch(workflow.id)
-    {:ok, _reparked} = Magma.Api.park_or_resume(parked, Store.waiters(workflow.id))
+    {:ok, _signal} = Magma.signal(workflow.id, "confirm", %{approver: "sam"})
 
     assert [job] = available_jobs()
     assert job.args["workflow_id"] == workflow.id
+  end
+
+  test "a workflow with a job waiting its turn is not sent another for what it is told" do
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+
+    assert [queued] = available_jobs()
+
+    {:ok, _signal} = Magma.signal(workflow.id, "confirm", %{approver: "sam"})
+
+    assert [^queued] = available_jobs()
   end
 
   test "waits reached one after another are answered whichever order they are told in" do
@@ -173,7 +180,11 @@ defmodule Magma.AwaitTest do
     Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow_id}})
   end
 
-  test "attempts of one workflow running at the same time do not collide" do
+  defp attempt(workflow_id, job_id) do
+    Magma.Worker.perform(%Oban.Job{id: job_id, args: %{"workflow_id" => workflow_id}})
+  end
+
+  test "jobs for one workflow reaching it at once run it once between them" do
     {:ok, workflow} = Magma.start(Workflows.Independent, %{order_id: "ord_1"})
     drain()
 
@@ -182,14 +193,43 @@ defmodule Magma.AwaitTest do
 
     outcomes =
       1..4
-      |> Task.async_stream(fn _attempt -> resume(workflow.id) end, ordered: false)
+      |> Task.async_stream(fn attempt -> attempt(workflow.id, attempt) end, ordered: false)
       |> Enum.map(fn {:ok, outcome} -> outcome end)
 
     labels = workflow.id |> Store.standing() |> Enum.map(& &1.step_label)
 
     assert reload(workflow).status == :completed
     assert Enum.sort(labels) == [":join", ":left", ":right"]
+    assert Effects.count(:join) == 1
     refute Enum.any?(outcomes, &match?({:error, _reason}, &1))
+  end
+
+  test "a job for a workflow another attempt holds waits its turn" do
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+    {:ok, _held} = Store.claim_workflow(workflow, 1, 60_000)
+
+    assert attempt(workflow.id, 2) == {:snooze, 1}
+    assert reload(workflow).status == :pending
+    assert Effects.count(:quote) == 0
+  end
+
+  test "a workflow held by an attempt that died is taken over once the lease lapses" do
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+    {:ok, _held} = Store.claim_workflow(workflow, 1, 60_000)
+
+    Application.put_env(:magma, :lease_ms, 1)
+    on_exit(fn -> Application.delete_env(:magma, :lease_ms) end)
+
+    assert attempt(workflow.id, 2) == :ok
+    assert reload(workflow).status == :waiting
+  end
+
+  test "the attempt holding a workflow takes it again when its job is retried" do
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+    {:ok, _held} = Store.claim_workflow(workflow, 7, 60_000)
+
+    assert attempt(workflow.id, 7) == :ok
+    assert reload(workflow).status == :waiting
   end
 
   test "a wait that goes unanswered past its window fails the workflow" do

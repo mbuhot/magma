@@ -37,6 +37,14 @@ defmodule Magma.Dsl do
         default: 20,
         doc: "How many times a crashed run is brought back before Oban gives up."
       ],
+      lease_ms: [
+        type: :pos_integer,
+        doc: """
+        How long one attempt of this workflow holds it before another may take it over, in
+        milliseconds. It has to outlast the longest attempt the workflow makes. Falls back to
+        `config :magma, lease_ms: ...`, and to five minutes if neither is set.
+        """
+      ],
       retention: [
         type: {:or, [:pos_integer, {:in, [:infinity]}]},
         doc: """

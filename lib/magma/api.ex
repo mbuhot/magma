@@ -5,6 +5,8 @@ defmodule Magma.Api do
   alias Magma.Worker
 
   @parked [:waiting, :polling]
+  @unwinding [:unwinding, :cancelling]
+  @terminal [:completed, :failed, :cancelled]
 
   def start(module, inputs, options) do
     attrs =
@@ -104,17 +106,18 @@ defmodule Magma.Api do
   # The signal and the job that brings the workflow back commit together, so a crash on the
   # sending side cannot leave a parked workflow with nothing coming for it.
   #
-  # A parked workflow gets the job whatever it is parked on, rather than only when it is parked
-  # on this name: the wait the signal answers may be one the run has not reached yet, and the
-  # attempt that reaches it needs something to run it. A workflow that is not parked already has
-  # an attempt of its own coming, and `park_or_resume/2` is what stops that attempt from parking
-  # over a signal that landed while it ran.
+  # The workflow's row is read holding it, and an attempt claims that same row for as long as it
+  # runs, so a delivery and an attempt cannot each act on what the other is about to write.
   defp resume(workflow_id) do
     case Store.lock_workflow(workflow_id) do
-      {:ok, %{status: status} = workflow} when status in @parked ->
-        with {:ok, _job} <- enqueue(workflow, []), do: :ok
+      {:ok, workflow} when not is_nil(workflow) ->
+        if needs_an_attempt?(workflow) do
+          with {:ok, _job} <- enqueue(workflow, []), do: :ok
+        else
+          :ok
+        end
 
-      {:ok, _otherwise} ->
+      {:ok, nil} ->
         :ok
 
       error ->
@@ -122,33 +125,19 @@ defmodule Magma.Api do
     end
   end
 
-  @doc """
-  Parks a workflow, or brings it straight back when something it waits on has already landed.
-
-  The write and the look happen together, and both sides hold the workflow's row, so a delivery
-  landing as an attempt parks is either seen by this look or sees the parked row and sends its
-  own job.
-  """
-  @spec park_or_resume(Ash.Resource.record(), [Ash.Resource.record()]) ::
-          {:ok, Ash.Resource.record()} | {:error, term()}
-  def park_or_resume(workflow, waiters) do
-    :workflow
-    |> Store.resource()
-    |> Ash.transact(fn ->
-      with {:ok, parked} <- Store.update_workflow(workflow, :set_status, %{status: :waiting}),
-           :ok <- resume_if_answered(parked, waiters) do
-        parked
-      end
-    end)
-  end
-
-  defp resume_if_answered(workflow, waiters) do
-    if Enum.any?(waiters, &Store.pending_signal(workflow.id, &1.name)) do
-      with {:ok, _job} <- enqueue(workflow, []), do: :ok
-    else
-      :ok
-    end
-  end
+  # A parked workflow gets the job whatever it is parked on, rather than only when it is parked on
+  # this name: the wait the signal answers may be one the run has not reached yet, and the attempt
+  # that reaches it needs something to run it.
+  #
+  # An attempt already under way is no use for a delivery landing now, since it may be past the
+  # wait that wanted it, so a held workflow is sent a job of its own. A job waiting its turn is
+  # another matter: it starts after this commits, so it reads the delivery for itself.
+  #
+  # A rollback drives itself from its own job, and an ending is final.
+  defp needs_an_attempt?(%{status: status}) when status in @terminal, do: false
+  defp needs_an_attempt?(%{status: status}) when status in @unwinding, do: false
+  defp needs_an_attempt?(%{status: status}) when status in @parked, do: true
+  defp needs_an_attempt?(%{claimed_at: claimed_at}), do: not is_nil(claimed_at)
 
   # A deadline needs something to bring the workflow back at it, since a parked workflow holds
   # no job of its own.
@@ -183,6 +172,27 @@ defmodule Magma.Api do
     %{workflow_id: workflow.id}
     |> Worker.new(job_options(workflow.module, options))
     |> Oban.insert()
+  end
+
+  @default_lease_ms :timer.minutes(5)
+
+  @doc """
+  How long one attempt holds a workflow before another job may take it over.
+
+  Read from the workflow itself first, falling back to `config :magma, lease_ms: ...` and then to
+  five minutes. It has to outlast the longest attempt the workflow makes: a lease that lapses
+  under a running attempt lets a second one start beside it, and one longer than it need be
+  leaves a crashed attempt's workflow idle for the difference.
+  """
+  @spec lease_ms(module()) :: pos_integer()
+  def lease_ms(module) do
+    declared(module, :lease_ms) || Application.get_env(:magma, :lease_ms) || @default_lease_ms
+  end
+
+  defp declared(module, option) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :spark_dsl_config, 0) do
+      Spark.Dsl.Extension.get_opt(module, [:magma], option, nil)
+    end
   end
 
   # The magma section carries the queue and attempt policy, and an option at the call site

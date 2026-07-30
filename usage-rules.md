@@ -212,9 +212,20 @@ asks for the look with `Magma.wake/1` rather than waiting out the interval.
 
 ## Where a step can run twice
 
-Two attempts of one workflow can overlap, so a step's effect can happen twice — see
-`DECISIONS.md` §32 for when, and what magma guarantees across it. A step whose effect cannot be
-repeated carries an idempotency key of its own.
+One attempt holds a workflow at a time, and every other job for it waits its turn. How long an
+attempt may hold it is `lease_ms`, on the workflow or in config, and it has to outlast the longest
+attempt the workflow makes:
+
+```elixir
+magma do
+  queue :sales
+  lease_ms :timer.minutes(30)
+end
+```
+
+A step abandoned by a halt is not a job and is not held by the claim, so its effect can still
+happen twice — see `DECISIONS.md` §32. A step whose effect cannot be repeated carries an
+idempotency key of its own.
 
 ## The entities
 

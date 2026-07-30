@@ -500,12 +500,12 @@ that at once parks what fits and reaches the rest on a later attempt.
 
 ## 30. A signal brings back a parked workflow whatever it is parked on
 
-`Magma.signal/3` enqueues the resume job for any workflow in `waiting` or `polling`, rather than
-only for one parked on that name. A workflow that is not parked holds an attempt of its own, and
-`Magma.Api.park_or_resume/2` is what stops that attempt from parking over a delivery that landed
-while it ran: the status write and the look for an answered wait happen in one transaction, and
-`Magma.signal/3` reads the workflow row `FOR UPDATE`, so the two cannot each act on what the
-other is about to write.
+`Magma.signal/3` enqueues the resume job for any workflow that is parked, and for any workflow an
+attempt presently holds — rather than only for one parked on that name. A job already waiting its
+turn is the one case that needs nothing, since it starts after the delivery commits and reads it
+for itself. The workflow's row is read `FOR UPDATE`, and an attempt holds that same row for as
+long as it runs (§33), so a delivery and an attempt cannot each act on what the other is about to
+write.
 
 **Why:** what a run is waiting for is not knowable from outside it. The wait a signal answers may
 be one the run has not reached, one it is parking on as the signal commits, or one a later
@@ -515,8 +515,13 @@ ever came for it: a click that did nothing, forever, with no error.
 
 **Falls out of it:** an attempt drains every signal it can reach, so waits are answered in
 whatever order they are told in. A resume job is deduplicated against one already waiting its
-turn, since that job stands for every delivery made before it starts — so a burst of signals
-against one workflow is one attempt rather than a crowd of them running over each other.
+turn, since that job stands for every delivery made before it starts.
+
+**An attempt under way is no use to a delivery landing now.** It may already be past the wait that
+wanted it: an attempt is one pass over the graph, and each `await` reads the store at the moment
+its step runs. So the delivery sends a job of its own rather than trusting the pass in flight —
+which is why uniqueness against an `executing` job would lose the wake-up, and why the job it
+sends waits its turn instead.
 
 **Costs:** a workflow parked on a name nothing will ever deliver is still woken by every other
 signal it is told, and pays a replay for each.
@@ -544,32 +549,55 @@ crash.
 
 ---
 
-## 32. Two attempts of one workflow can overlap, and what that costs
+## 32. What is left of two attempts running at once
 
-Magma does not hold a workflow id to one attempt at a time. Overlap arises two ways:
-
-- **A second job.** A deadline scheduled for a wait fires while a resume job runs. A resume job
-  is deduplicated against one already waiting its turn, and only a parked workflow is sent one,
-  so the ordinary path is one attempt — but a scheduled job is always its own.
-- **A task that outlived its attempt.** Reactor's executor stops at the first halted step and its
-  halt branch does not collect what is still in flight, and those steps are started with
-  `Task.Supervisor.async_nolink/5`, so they are not linked to the job process. An async step can
-  still be running after the run returned `{:halted, _}`, after the workflow parked, and after
-  the job ended. This needs no queue concurrency at all.
-
-An attempt loads its checkpoints once, at the start of the run, so for its whole length it is
-blind to what the other attempt records.
+The claim (§33) holds a workflow to one attempt per job. What it does not hold is work Reactor
+left running: the executor stops at the first halted step and its halt branch does not collect
+what is still in flight, and those steps are started with `Task.Supervisor.async_nolink/5`, so
+they are not linked to the job process. An async step can still be running after the run returned
+`{:halted, _}`, after the workflow parked, and after the claim was given back — beside the attempt
+that comes next.
 
 **What holds anyway.** Every engine write says what happens when it loses (§31), the unique index
 keeps one recording per step, and an ending stands whatever a slower attempt goes on to do.
 
-**What it costs.** A step's effect can happen twice: two attempts both miss the same checkpoint,
-both run the step, and one of them loses the recording after its work is already done. That is
-the at-least-once boundary every durable engine draws somewhere, reached here by overlap as well
-as by a crash.
+**What it costs.** A step's effect can happen twice: the abandoned step and the next attempt both
+run it, and one of them loses the recording after its work is already done. That is the
+at-least-once boundary every durable engine draws somewhere.
 
-**What would close it.** One attempt per workflow id needs a claim on the workflow row — an
-attempt takes it and every other job snoozes — with a lease so a dead attempt's claim expires.
-Stopping in-flight work at a halt needs Reactor to collect its running tasks on the halt path as
-it already does on the timeout path. Neither is in place. Until they are, a step whose effect
-cannot be repeated wants an idempotency key of its own.
+**What would close it.** Reactor collecting its running tasks on the halt path as it already does
+on the timeout path. Until then, a step whose effect cannot be repeated wants an idempotency key
+of its own.
+
+---
+
+## 33. One attempt holds a workflow, and the rest wait their turn
+
+An attempt claims the workflow's row — `claimed_at` and the id of the job holding it — with a
+conditional update, and gives it back when it has written where the run stands. A job that finds
+the workflow held returns `{:snooze, 1}`.
+
+**Why:** two jobs for one workflow both find no checkpoint for a step, both run it, and the unique
+index picks one of the two recordings after both effects have happened. That is how the agency
+example came to hold two of the same compliance document. A signal that lands mid-attempt has to
+send a job of its own (§30), so the jobs exist whether or not they should run together — the claim
+is what makes the extra one wait rather than race.
+
+**Why snooze rather than uniqueness at insert.** `Oban.Engines.Basic.snooze_job/3` raises the job's
+ceiling as it reschedules, so a job can yield as often as it needs to for nothing. Refusing the
+insert instead would throw away the wake-up it carries.
+
+**A claim is free three ways:** nobody holds it, the lease on it has lapsed, or the job asking is
+the job already holding it — a retry of a crashed attempt takes its own claim straight back rather
+than waiting the lease out.
+
+**The lease is the one number to get right.** `Magma.Api.lease_ms/1` reads it from the workflow's
+own `magma` section, then `config :magma, lease_ms: ...`, then five minutes. It has to outlast the
+longest attempt the workflow makes: too short and a second attempt starts beside a running one,
+too long and a workflow whose attempt died sits idle for the difference. Align it with
+`Oban.Plugins.Lifeline`'s rescue window so the two agree about when an attempt is dead.
+
+**Costs:** two attributes on the application's workflow resource, so an application that has
+already run `mix magma.install` regenerates its migrations. A claim released on the way out of an
+attempt is a second write on every ending. And a job driven straight from a test carries no id, so
+it cannot recognise a claim as its own — every such job would recognise every other one's.

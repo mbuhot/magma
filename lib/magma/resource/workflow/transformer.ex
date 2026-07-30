@@ -27,6 +27,8 @@ defmodule Magma.Resource.Workflow.Transformer do
     )
     |> Builder.add_new_attribute(:parent_workflow_id, :uuid_v7, public?: true)
     |> Builder.add_new_attribute(:parent_signal, :string, public?: true)
+    |> Builder.add_new_attribute(:claimed_at, :utc_datetime_usec, public?: true)
+    |> Builder.add_new_attribute(:claimed_by, :integer, public?: true)
     |> Builder.add_new_attribute(:result, Term, public?: true)
     |> Builder.add_new_attribute(:error, Term, public?: true)
     |> Builder.add_new_create_timestamp(:inserted_at, public?: true)
@@ -38,6 +40,16 @@ defmodule Magma.Resource.Workflow.Transformer do
       accept: [:id, :module, :inputs, :actor, :tenant, :parent_workflow_id, :parent_signal]
     )
     |> Builder.add_new_action(:update, :set_status, accept: [:status], require_atomic?: false)
+    |> Builder.add_new_action(:update, :claim,
+      accept: [:claimed_by],
+      require_atomic?: false,
+      changes: [Common.set(:claimed_at, &DateTime.utc_now/0)]
+    )
+    |> Builder.add_new_action(:update, :release_claim,
+      accept: [],
+      require_atomic?: false,
+      changes: [Common.set(:claimed_at, nil), Common.set(:claimed_by, nil)]
+    )
     |> Builder.add_new_action(:update, :record_error, accept: [:error], require_atomic?: false)
     |> Builder.add_new_action(:update, :complete,
       accept: [:result],

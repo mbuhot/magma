@@ -109,6 +109,51 @@ defmodule Magma.Store do
     |> Ash.read_one(authorize?: false)
   end
 
+  @doc """
+  Claims a workflow for one attempt, if nothing else holds it.
+
+  A claim is free when nobody holds it, when the lease on it has lapsed, or when the job asking
+  is the job already holding it — a retry of a crashed attempt takes its own claim back rather
+  than waiting the lease out.
+
+  The claim is what keeps a workflow to one attempt at a time. Everything else asking for it is
+  told, and comes back.
+  """
+  @spec claim_workflow(Ash.Resource.record(), integer() | nil, pos_integer()) ::
+          {:ok, Ash.Resource.record()} | :taken
+  def claim_workflow(workflow, job_id, lease_ms) do
+    lapsed = DateTime.add(DateTime.utc_now(), -lease_ms, :millisecond)
+
+    workflow
+    |> Ash.Changeset.for_update(:claim, %{claimed_by: job_id})
+    |> Ash.Changeset.filter(free(job_id, lapsed))
+    |> Ash.update(authorize?: false)
+    |> case do
+      {:ok, claimed} -> {:ok, claimed}
+      {:error, _taken} -> :taken
+    end
+  end
+
+  # A job with no id of its own — one driven straight from a test — cannot recognise a claim as
+  # its own, since every such job would recognise every other one's.
+  defp free(nil, lapsed) do
+    Ash.Expr.expr(is_nil(claimed_at) or claimed_at < ^lapsed)
+  end
+
+  defp free(job_id, lapsed) do
+    Ash.Expr.expr(is_nil(claimed_at) or claimed_at < ^lapsed or claimed_by == ^job_id)
+  end
+
+  @doc "Gives a claim back, so the next job for the workflow can take it."
+  @spec release_claim(Ash.Resource.record()) :: :ok
+  def release_claim(workflow) do
+    workflow
+    |> Ash.Changeset.for_update(:release_claim, %{})
+    |> Ash.update(authorize?: false)
+
+    :ok
+  end
+
   @doc "Moves a workflow to a state, or to a terminal one carrying its outcome."
   @spec update_workflow(Ash.Resource.record(), atom(), map()) ::
           {:ok, Ash.Resource.record()} | {:error, term()}
