@@ -3,7 +3,8 @@ defmodule Magma.Type.Term do
   An Ash type holding any Erlang term, stored as `bytea`.
 
   Atoms, tuples, structs, Decimals and Ash records round trip exactly, which is what lets a
-  replayed step return the value the original run produced.
+  replayed step return the value the original run produced. Decoding trusts the stored bytes
+  as the application's own write, so it may create an atom the running VM has never seen.
   """
 
   use Ash.Type
@@ -30,7 +31,7 @@ defmodule Magma.Type.Term do
   def cast_stored(nil, _constraints), do: {:ok, nil}
 
   def cast_stored(value, _constraints) when is_binary(value) do
-    {:ok, :erlang.binary_to_term(value, [:safe])}
+    {:ok, :erlang.binary_to_term(value)}
   rescue
     ArgumentError -> :error
   end

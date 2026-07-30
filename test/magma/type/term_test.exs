@@ -52,4 +52,14 @@ defmodule Magma.Type.TermTest do
   test "stored bytes that are not a term are rejected" do
     assert :error = Ash.Type.cast_stored(Term, "not a term", [])
   end
+
+  test "a checkpoint written by code this run never loaded still replays" do
+    atom_name = "magma_type_term_test_unloaded_atom"
+    encoded = <<131, 119, byte_size(atom_name)::8>> <> atom_name
+
+    assert_raise ArgumentError, fn -> :erlang.binary_to_term(encoded, [:safe]) end
+
+    assert {:ok, loaded} = Ash.Type.cast_stored(Term, encoded, [])
+    assert loaded == String.to_existing_atom(atom_name)
+  end
 end

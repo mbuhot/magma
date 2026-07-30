@@ -411,3 +411,28 @@ cancel the other" — each `await` is its own node the plan must complete.
 **What it means for a workflow:** mutually exclusive events share a signal name and are
 distinguished by payload. `Agency.Sale.Attempt` awaits `"settlement.completed"` once and
 switches on the payload to separate a completed settlement from a buyer default.
+
+---
+
+## 27. A checkpoint decodes without the atom-table guard
+
+`Magma.Type.Term` decodes stored checkpoints with `:erlang.binary_to_term/1`, not the
+`:safe` option.
+
+**Why:** `:safe` refuses to create an atom absent from the running VM's atom table, and a
+step module reaches the VM only when something loads it. Reactor modules name their steps as
+compile-time DSL arguments, so building a workflow's `%Reactor{}` does not load every step
+module, and Elixir's lazy loading in dev and test leaves plenty of modules unloaded until
+something calls into them directly. A checkpoint written on an attempt that did load a step,
+read back on a later attempt that replays instead of running it, can hold an atom the second
+attempt's VM has never created — and `:safe` turned that into an unresolvable checkpoint over
+data the application itself wrote. A checkpoint row is the application's own write into its
+own table, not a channel an outside party feeds. `:safe` defends against a poisoned row
+exhausting the atom table, but anyone able to write checkpoint rows already controls what a
+replayed step returns, and every step downstream of a replay trusts that return value
+completely — so the guard buys little against a threat the design does not have, at the cost
+of breaking valid data.
+
+**Costs:** a corrupt checkpoint binary still fails to decode and `cast_stored/2` still
+reports `:error` rather than raising, but nothing now stops a checkpoint holding an atom from
+growing the atom table on every distinct value a run stores.
