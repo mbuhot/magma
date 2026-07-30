@@ -41,7 +41,7 @@ outer reactor, or under a `map` or a `switch`.
 | `switch` | A step, wait, or child that only exists down one branch. |
 | `map` | The same steps, repeated once per element of a collection, each element's own checkpoint. |
 | `dispatch` | A step that needs a wait of its own, its own queue, its own retries, or that another workflow also needs to run. |
-| `group` / `around` / `recurse` / `compose` | An atomic unit that should re-run as a whole rather than resume mid-way. Holds no wait. |
+| `group` / `around` / `recurse` / `compose` | An atomic unit whose retry re-runs every step inside it. Holds no wait. |
 
 Default to a flat body. Reach for `map` when the work repeats over a collection, `dispatch`
 when a step needs to be a workflow in its own right, and a nesting composite only when re-running
@@ -49,15 +49,13 @@ the whole unit on retry is what's wanted.
 
 ## Checkpoint granularity
 
-- A checkpointed step runs **at most once**: a replay reads its recorded value back instead of
-  running it again.
+- A checkpointed step runs **at most once**: a replay reads its recorded value back.
 - A nesting composite (`group`, `around`, `recurse`, `compose`) records once, for itself, not
   for its children — its children hold no checkpoint of their own and **re-run together** if
   the run comes back before the composite recorded.
 
 A non-idempotent effect inside a nesting composite needs its own checkpoint: pull it out to a
-plain step in the outer reactor, or under a `map`/`switch`, rather than leaving it to a
-composite that may replay it.
+plain step in the outer reactor, or under a `map`/`switch`.
 
 ## Alternative outcomes
 
@@ -91,15 +89,15 @@ end
 ## A dispatched child's failure
 
 `dispatch` surfaces a child's error as the dispatching step's own failure, so it unwinds the
-caller exactly as any other step's error does. An expected failure is not an error — it is a
-return value the child's workflow completes with:
+caller exactly as any other step's error does. An expected failure is a return value the
+child's workflow completes with:
 
 ```elixir
 %{outcome: :condition_failed, kind: :finance}
 ```
 
 The dispatching step gets that map back as its result and branches on it. A `dispatch` that
-raises is a bug in the child, not a signal to route on.
+raises indicates a bug in the child.
 
 ## Addressing fan-out
 
@@ -118,7 +116,7 @@ end
 ```
 
 When elements must be addressed individually — a specific order confirmed out of turn, a
-specific child failing on its own — use `dispatch` per element instead. Each element derives
+specific child failing on its own — use `dispatch` per element. Each element derives
 its own child id, so each can be signalled, adopted, and reported on independently.
 
 ## `map` concurrency
@@ -163,24 +161,31 @@ end
 A wait cannot live inside `recurse` — `Reactor.Step.Recurse` reuses the same step name for
 every iteration, so a `dispatch` there would derive one child id for every iteration and a
 later iteration would adopt an earlier one's finished child. A `recurse` that needs a wait or
-an effect per iteration expresses the loop as a chain of self-dispatching children instead:
-each iteration's workflow dispatches the next, carrying forward whatever state the loop needs.
+an effect per iteration expresses the loop as a chain of self-dispatching children: each
+iteration's workflow dispatches the next, carrying forward whatever state the loop needs.
 A `recurse` that stays pure — no wait, no checkpointed effect — is unaffected.
 
 ## Testing
 
 `Magma.Testing.run_workflows/1` wraps `Oban.drain_queue/1` with defaults suited to draining a
 whole workflow tree in one call: `queue: :default`, `with_recursion: true`,
-`with_safety: false`. Pass `with_scheduled: true` to also run jobs Oban has scheduled for the
-future — this is what re-executes a `poll` that snoozed itself, since a snooze reschedules the
-same job rather than enqueueing a new one:
+`with_safety: false`.
+
+To reach a wait whose deadline lies in the future, add `with_scheduled: true` and set
+`with_recursion: false` in the same call:
 
 ```elixir
-run_workflows(with_scheduled: true)
+run_workflows(with_scheduled: true, with_recursion: false)
 ```
 
-Without it, a snoozed `poll` sits until something calls `Magma.Worker.perform/1` directly or
-the scheduled time passes for real.
+Keep those two options apart. `with_scheduled: true` treats a job scheduled for any future
+time as due now, and a snoozed `poll` reschedules its own job. Held together with
+`with_recursion: true`, that pair runs a poll, runs the job its snooze schedules, runs the next
+one, and continues without bound. Drain with recursion for ordinary progress, and use a single
+non-recursive pass to reach a scheduled wait.
+
+A snoozed `poll` otherwise sits until `Magma.Worker.perform/1` is called for its workflow or
+its scheduled time arrives.
 
 ## The entities
 
