@@ -14,10 +14,11 @@ fits it.
 |---|---|---|
 | Auction, set date, or private treaty? | a structural `switch` | fixed at the attempt's own setup, known before any child runs |
 | Which state's compliance rules apply? | a `dispatch` resolved at run time | the child module is looked up from the property's jurisdiction |
-| Does cooling off apply? | a small `switch` on the resolved policy | auction sales are exempt; the other two aren't |
+| Does cooling off apply? | a small `switch` on the resolved policy | auction sales are exempt; set date and treaty sales carry a window |
 
 The sale method decides the shape of a whole subtree. The jurisdiction decides which module a
-dispatch reaches for. Cooling off is neither — it's a policy value read back and branched on.
+dispatch reaches for. Cooling off turns on a policy value read back from the jurisdiction and
+branched on in place.
 
 ## The workflow tree
 
@@ -32,8 +33,8 @@ Engagement                        one per agency agreement
         │       └── Negotiation   dispatched; a counter dispatches the next round
         ├── SetDateSale           switch: sale_method == :set_date
         │   └── Negotiation       one dispatched child per live offer, run concurrently
-        └── PrivateTreaty         switch: sale_method == :treaty
-            └── Negotiation
+        ├── PrivateTreaty         switch: sale_method == :treaty
+        │   └── Negotiation
         └── Conditions            dispatched once exchanged
 ```
 
@@ -51,8 +52,8 @@ Both are children of the same `Attempt`, chosen by what the agent answers.
 | **Sales desk** (`/`) | the agent's language | one listing, its stage, and the actions available right now |
 | **Console** (`/console`) | the machinery | every workflow, its dispatch tree, its parked waits, its checkpoints |
 
-The sales desk never writes into a domain row directly — every button delivers a signal to the
-workflow behind the listing, or moves an external system's state and lets the workflow notice.
+Every button on the sales desk delivers a signal to the workflow behind the listing, or moves an
+external system's state and lets the workflow notice.
 The console reads the same rows and shows what a developer would want: module names, step keys,
 signal names, queues.
 
