@@ -60,6 +60,31 @@ The failing test comes first either way.
 The example itself uses no `recurse` — negotiation rounds are awaits inside a workflow, and
 the generation chain is dispatch-of-successor — so A and B are independent.
 
+## Magma's own usage rules
+
+Magma depends on `usage_rules` and publishes none, so an agent consuming the library gets no
+guidance while every Ash-ecosystem dependency in this repo ships some. Building the example
+surfaced enough sharp edges to make this the highest-value documentation in the project.
+
+Write `usage-rules.md` at the repo root, split into `usage-rules/` topic files if it grows.
+`DECISIONS.md` records *why* each constraint exists; usage rules state what to do. Cover:
+
+| Rule | Substance |
+|---|---|
+| Where a wait may live | Reactor body, `switch` branch, `map` element. Never inside `compose`, `group`, `around`, `recurse` |
+| Choosing a boundary | Flat body by default; `map` across a collection; `dispatch` for a wait, own queue, own retries, reuse; composite only when atomic re-run is wanted |
+| Checkpoint granularity | At most once per checkpointed step; at least once for a whole nesting composite. Non-idempotent effects need their own checkpoint |
+| Alternative outcomes | One `poll` whose status discriminates, or one signal whose payload does, or a signal against `on_timeout: :return`. Two sibling awaits deadlock |
+| A child's failure | Unwinds the caller. An expected failure is a return value, never an error |
+| Addressing fan-out | Signal names are static, so `map` + `await` shares one name. Use `dispatch` per element when elements must be addressed |
+| `map` concurrency | `allow_async?` defaults to false, so dispatched children serialise. Set it when fan-out must be concurrent |
+| Timeouts | Measured once when a wait first parks and held on the waiter row. Integer, 2-arity function, or MFA |
+| Testing | `run_workflows/1` with `with_scheduled: true` and `with_recursion: true` re-executes a snoozed `poll` without bound |
+| Reading checkpoints elsewhere | `Magma.Type.Term` decodes with `:safe` atoms, so a process must have loaded the modules a stored term references |
+
+Also add a line to each of `Magma.Dsl.Await`, `Magma.Dsl.Poll` and `Magma.Dsl.Dispatch` — the
+entity docs are what a developer reads first, and they currently say none of this.
+
 ## Acceptance
 
 - `mix test` green in the magma root and in `examples/agency`.
