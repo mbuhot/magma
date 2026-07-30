@@ -1,0 +1,1048 @@
+<title>Ray &amp; Cole — sales desk</title>
+
+<style>
+  :root {
+    --paper: #EDEEE9;
+    --surface: #F7F8F4;
+    --sunk: #E3E5DE;
+    --ink: #171C1A;
+    --ink-2: #58635D;
+    --ink-3: #8A948D;
+    --rule: #CFD4CB;
+    --rule-2: #DFE3DA;
+    --accent: #0F5257;
+    --accent-wash: #DCE8E6;
+    --live: #96620E;
+    --live-wash: #F3E7CF;
+    --stop: #8F3123;
+    --stop-wash: #F3DCD7;
+
+    --f-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --f-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --f-data: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #101413; --surface: #171D1B; --sunk: #0B0F0E;
+      --ink: #E7EBE6; --ink-2: #99A39B; --ink-3: #6B756E;
+      --rule: #2B342F; --rule-2: #222A26;
+      --accent: #59B7A9; --accent-wash: #14312E;
+      --live: #D3A24A; --live-wash: #33280F;
+      --stop: #D5745C; --stop-wash: #351A14;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #101413; --surface: #171D1B; --sunk: #0B0F0E;
+    --ink: #E7EBE6; --ink-2: #99A39B; --ink-3: #6B756E;
+    --rule: #2B342F; --rule-2: #222A26;
+    --accent: #59B7A9; --accent-wash: #14312E;
+    --live: #D3A24A; --live-wash: #33280F;
+    --stop: #D5745C; --stop-wash: #351A14;
+  }
+
+  :root[data-theme="light"] {
+    --paper: #EDEEE9; --surface: #F7F8F4; --sunk: #E3E5DE;
+    --ink: #171C1A; --ink-2: #58635D; --ink-3: #8A948D;
+    --rule: #CFD4CB; --rule-2: #DFE3DA;
+    --accent: #0F5257; --accent-wash: #DCE8E6;
+    --live: #96620E; --live-wash: #F3E7CF;
+    --stop: #8F3123; --stop-wash: #F3DCD7;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--f-ui); font-size: 15px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .eyebrow {
+    font-family: var(--f-data); font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+
+  .num { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
+
+  /* ---- shell ---- */
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+    padding: 12px 24px; border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+
+  .brand .mark {
+    font-family: var(--f-display); font-size: 19px; font-weight: 600; letter-spacing: -0.01em;
+  }
+
+  .brand .desk { color: var(--ink-3); font-size: 13px; }
+
+  .whoami { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); }
+
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%; background: var(--accent-wash);
+    color: var(--accent); display: grid; place-items: center;
+    font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em;
+  }
+
+  .shell {
+    display: grid;
+    grid-template-columns: 268px minmax(0, 1fr) 320px;
+    gap: 0; align-items: start;
+    min-height: 70vh;
+  }
+
+  @media (max-width: 1180px) { .shell { grid-template-columns: 240px minmax(0, 1fr); } .aside { grid-column: 1 / -1; border-left: none; border-top: 1px solid var(--rule); } }
+  @media (max-width: 820px) { .shell { grid-template-columns: minmax(0, 1fr); } .rail { border-right: none; border-bottom: 1px solid var(--rule); } }
+
+  .rail { border-right: 1px solid var(--rule); background: var(--surface); }
+  .main { padding: 24px 28px 60px; min-width: 0; }
+  .aside { border-left: 1px solid var(--rule); background: var(--surface); min-height: 100%; }
+
+  /* ---- listings rail ---- */
+
+  .rail-head {
+    padding: 13px 16px 11px; border-bottom: 1px solid var(--rule);
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+
+  .lst {
+    display: block; width: 100%; text-align: left; background: none;
+    border: none; border-bottom: 1px solid var(--rule-2); border-left: 3px solid transparent;
+    padding: 12px 15px; cursor: pointer; font: inherit; color: inherit;
+  }
+
+  .lst:hover { background: var(--paper); }
+  .lst.on { background: var(--paper); border-left-color: var(--accent); }
+  .lst:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .lst .addr { font-family: var(--f-display); font-size: 15.5px; font-weight: 600; line-height: 1.2; }
+  .lst .sub { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+
+  .lst .foot {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 8px; margin-top: 7px;
+  }
+
+  .lst .amt { font-family: var(--f-data); font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+  /* ---- status pill ---- */
+
+  .pill {
+    font-family: var(--f-data); font-size: 10px; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 3px 7px; border-radius: 2px;
+    border: 1px solid var(--rule); color: var(--ink-3); white-space: nowrap;
+  }
+
+  .pill.act { border-color: var(--live); color: var(--live); background: var(--live-wash); }
+  .pill.ok { border-color: var(--accent); color: var(--accent); background: var(--accent-wash); }
+  .pill.bad { border-color: var(--stop); color: var(--stop); background: var(--stop-wash); }
+
+  /* ---- listing header ---- */
+
+  .lh { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end; justify-content: space-between; }
+
+  .lh h1 {
+    font-family: var(--f-display); font-size: clamp(25px, 3vw, 34px);
+    line-height: 1.08; font-weight: 600; letter-spacing: -0.015em; margin: 5px 0 0; text-wrap: balance;
+  }
+
+  .lh .meta { color: var(--ink-2); font-size: 13.5px; margin-top: 6px; }
+
+  .headline {
+    text-align: right; font-family: var(--f-data); font-variant-numeric: tabular-nums;
+  }
+
+  .headline .big { font-size: 25px; letter-spacing: -0.01em; }
+  .headline .cap { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+
+  /* ---- progress ---- */
+
+  .prog {
+    display: flex; flex-wrap: wrap; gap: 2px; margin: 22px 0 26px;
+    border: 1px solid var(--rule); background: var(--surface); border-radius: 2px; overflow: hidden;
+  }
+
+  .prog .st {
+    flex: 1 1 96px; padding: 9px 11px; border-right: 1px solid var(--rule-2); min-width: 0;
+  }
+
+  .prog .st:last-child { border-right: none; }
+  .prog .st .lab { font-size: 12.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prog .st .when { font-family: var(--f-data); font-size: 10.5px; color: var(--ink-3); margin-top: 2px; }
+  .prog .st.done { background: var(--paper); }
+  .prog .st.done .lab { color: var(--ink-2); }
+  .prog .st.now { background: var(--live-wash); box-shadow: inset 0 -3px 0 var(--live); }
+  .prog .st.now .lab { color: var(--ink); font-weight: 600; }
+  .prog .st.now .when { color: var(--live); }
+  .prog .st.gone { background: var(--stop-wash); box-shadow: inset 0 -3px 0 var(--stop); }
+  .prog .st.gone .lab { color: var(--stop); }
+
+  /* ---- cards ---- */
+
+  .card {
+    border: 1px solid var(--rule); background: var(--surface);
+    border-radius: 2px; margin-bottom: 20px;
+  }
+
+  .card > header {
+    padding: 11px 16px; border-bottom: 1px solid var(--rule);
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+
+  .card > header h3 {
+    margin: 0; font-family: var(--f-display); font-size: 16px; font-weight: 600;
+  }
+
+  .card .pad { padding: 16px; }
+
+  .card.now { border-color: var(--live); }
+  .card.now > header { background: var(--live-wash); border-bottom-color: var(--live); }
+
+  .card.gone { border-color: var(--stop); border-style: dashed; }
+
+  /* ---- offers table ---- */
+
+  .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .tbl th {
+    text-align: left; font-family: var(--f-data); font-size: 10px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-3); font-weight: 500;
+    padding: 9px 16px; border-bottom: 1px solid var(--rule);
+  }
+  .tbl td { padding: 11px 16px; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl .who { font-weight: 600; }
+  .tbl .fin { font-size: 12.5px; color: var(--ink-3); }
+  .tbl .amt { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
+  .tbl tr.out td { opacity: 0.5; }
+  .tbl tr.out .amt { text-decoration: line-through; }
+  .tbl tr.win { background: var(--accent-wash); }
+  .tblwrap { overflow-x: auto; }
+
+  /* ---- actions ---- */
+
+  .acts { display: flex; flex-direction: column; gap: 8px; }
+
+  button.do {
+    font: inherit; font-size: 14px; text-align: left; padding: 10px 13px;
+    border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
+    border-radius: 2px; cursor: pointer; transition: border-color 120ms, background 120ms; width: 100%;
+  }
+
+  button.do:hover { border-color: var(--accent); background: var(--accent-wash); }
+  button.do:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.do.key { border-color: var(--accent); border-left-width: 3px; }
+  button.do.no { color: var(--stop); }
+  button.do.no:hover { border-color: var(--stop); background: var(--stop-wash); }
+
+  button.do .hint { display: block; font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+
+  .grp {
+    font-family: var(--f-data); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-3); margin: 12px 0 2px; padding-bottom: 3px; border-bottom: 1px dotted var(--rule);
+  }
+
+  .grp:first-child { margin-top: 0; }
+
+  /* ---- aside ---- */
+
+  .asec { border-bottom: 1px solid var(--rule); }
+  .asec > header { padding: 12px 16px 9px; display: flex; justify-content: space-between; align-items: baseline; }
+
+  .row {
+    display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+    padding: 8px 16px; font-size: 13.5px; border-top: 1px solid var(--rule-2);
+  }
+
+  .row .k { color: var(--ink-2); }
+  .row .k small { display: block; color: var(--ink-3); font-size: 11.5px; }
+  .row .v { font-family: var(--f-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .row .v.ok { color: var(--accent); }
+  .row .v.bad { color: var(--stop); }
+  .row .v.wait { color: var(--live); }
+
+  .money-hero { padding: 14px 16px 16px; }
+  .money-hero .big { font-family: var(--f-data); font-size: 27px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .money-hero .cap { color: var(--ink-2); font-size: 13px; margin-top: 4px; }
+
+  .feed { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; }
+
+  .feed li {
+    display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px;
+    padding: 8px 16px; border-top: 1px solid var(--rule-2); font-size: 13px;
+  }
+
+  .feed time { font-family: var(--f-data); font-size: 11.5px; color: var(--ink-3); }
+  .feed .txt { color: var(--ink-2); }
+  .feed .txt b { color: var(--ink); font-weight: 600; }
+  .feed li.bad .txt b { color: var(--stop); }
+
+  .empty { padding: 16px; color: var(--ink-3); font-size: 13.5px; }
+
+  /* ---- checklist ---- */
+
+  .chk { display: flex; flex-direction: column; }
+
+  .chk .item {
+    display: flex; gap: 10px; align-items: baseline;
+    padding: 9px 16px; border-top: 1px solid var(--rule-2); font-size: 13.5px;
+  }
+
+  .chk .item:first-child { border-top: none; }
+  .chk .box { font-family: var(--f-data); font-size: 12px; color: var(--ink-3); flex: none; }
+  .chk .item.on .box { color: var(--accent); }
+  .chk .item.off .box { color: var(--stop); }
+  .chk .item.on .lb { color: var(--ink-2); }
+  .chk .lb { color: var(--ink); }
+
+  /* ---- history ---- */
+
+  .hist { padding: 13px 16px; border-top: 1px solid var(--rule-2); font-size: 13.5px; }
+  .hist:first-child { border-top: none; }
+  .hist .hh { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .hist .who { font-family: var(--f-display); font-size: 15px; font-weight: 600; }
+  .hist .amt { font-family: var(--f-data); font-variant-numeric: tabular-nums; color: var(--ink-3); text-decoration: line-through; }
+  .hist .why { color: var(--ink-2); margin-top: 4px; }
+
+  .banner {
+    padding: 12px 16px; background: var(--stop-wash); border: 1px solid var(--stop);
+    border-radius: 2px; margin-bottom: 20px; font-size: 14px;
+  }
+
+  .banner b { color: var(--stop); }
+
+  .note {
+    font-size: 13px; color: var(--ink-2); background: var(--sunk);
+    border-left: 2px solid var(--accent); padding: 10px 13px; margin-top: 14px;
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="mark">Ray &amp; Cole</span>
+    <span class="desk">Sales desk</span>
+  </div>
+  <div class="whoami">
+    <span class="avatar">PR</span>
+    <span>Priya Raman &middot; Sales agent &middot; Neutral Bay office</span>
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-head">
+      <span class="eyebrow">My listings</span>
+      <span class="eyebrow" id="rail-count"></span>
+    </div>
+    <div id="rail"></div>
+  </nav>
+
+  <main class="main" id="main"></main>
+
+  <aside class="aside" id="aside"></aside>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------- reference ---------------- */
+
+  var STATES = {
+    NSW: { name: "New South Wales",
+      docs: [["contract", "Contract of sale prepared"], ["title", "Title search"], ["drainage", "Drainage diagram"], ["planning", "Planning certificate (10.7)"]],
+      coolDays: 5, forfeit: 0.0025, forfeitLabel: "0.25%",
+      holidays: { "2026-10-05": "Labour Day", "2026-12-25": "Christmas Day", "2026-12-28": "Boxing Day" } },
+    VIC: { name: "Victoria",
+      docs: [["s32", "Vendor statement (s32)"], ["soi", "Statement of Information"], ["title", "Title search"]],
+      coolDays: 3, forfeit: 0.002, forfeitLabel: "0.2%",
+      holidays: { "2026-11-03": "Melbourne Cup Day", "2026-12-25": "Christmas Day", "2026-12-28": "Boxing Day" } },
+    QLD: { name: "Queensland",
+      docs: [["form6", "Form 6 appointment"], ["disclosure", "Seller disclosure statement"], ["title", "Title search"]],
+      coolDays: 5, forfeit: 0.0025, forfeitLabel: "0.25%",
+      holidays: { "2026-10-05": "King's Birthday", "2026-12-25": "Christmas Day", "2026-12-28": "Boxing Day" } }
+  };
+
+  var METHOD = { auction: "Auction", set_date: "Set date sale", treaty: "Private treaty" };
+
+  var TODAY = "2026-10-12";
+
+  /* ---------------- dates ---------------- */
+
+  function parse(x) { var p = x.split("-"); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+  var DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function shortDate(x) { var d = parse(x); return d.getDate() + " " + MON[d.getMonth()]; }
+  function dayDate(x) { var d = parse(x); return DAY[d.getDay()] + " " + d.getDate() + " " + MON[d.getMonth()]; }
+  function fullDate(x) { return dayDate(x) + " " + parse(x).getFullYear(); }
+  function addDays(x, n) { var d = parse(x); d.setDate(d.getDate() + n); return iso(d); }
+  function weekend(d) { return d.getDay() === 0 || d.getDay() === 6; }
+
+  function addBusinessDays(from, n, st) {
+    var hol = STATES[st].holidays, d = parse(from), added = 0, skipped = [];
+    while (added < n) {
+      d.setDate(d.getDate() + 1);
+      if (weekend(d)) continue;
+      if (hol[iso(d)]) { skipped.push(hol[iso(d)]); continue; }
+      added++;
+    }
+    return { date: iso(d), skipped: skipped };
+  }
+
+  function money(n) { return "$" + Math.round(n).toLocaleString("en-AU"); }
+  function short(n) {
+    if (n >= 1000000) return "$" + (n / 1000000).toFixed(n % 1000000 === 0 ? 1 : 2).replace(/\.00$/, "") + "m";
+    return "$" + Math.round(n / 1000) + "k";
+  }
+
+  /* ---------------- listings ---------------- */
+
+  function buyer(name, amount, lender) { return { name: name, amount: amount, lender: lender, status: "interested" }; }
+
+  function makeListings() {
+    return [
+      {
+        id: "kurraba",
+        address: "14 Kurraba Road",
+        suburb: "Neutral Bay",
+        state: "NSW",
+        vendor: "J. & M. Halloran",
+        method: "set_date",
+        guide: 1350000,
+        rate: 0.022,
+        payOn: "settlement",
+        stage: "offers_open",
+        date: TODAY,
+        docs: { contract: true, title: true, drainage: true, planning: true },
+        buyers: [buyer("Danforth", 1385000, "Whitlock Mutual"), buyer("Osei-Bright", 1420000, "Cardinia Bank"), buyer("Verhoeven", 1362500, "cash")],
+        offerDeadline: "2026-10-16",
+        contract: null, history: [], feed: [
+          { d: "2026-10-10", t: "Third contract requested &mdash; <b>Verhoeven</b>" },
+          { d: "2026-10-04", t: "Open home &mdash; <b>23 groups</b> through" },
+          { d: "2026-09-19", t: "Campaign launched, offers close 16 Oct" }
+        ]
+      },
+      {
+        id: "rialto",
+        address: "8 Rialto Street",
+        suburb: "Fitzroy North",
+        state: "VIC",
+        vendor: "D. Ferrante",
+        method: "auction",
+        guide: 1180000,
+        rate: 0.02,
+        payOn: "settlement",
+        stage: "auction_day",
+        date: TODAY,
+        docs: { s32: true, soi: true, title: true },
+        buyers: [buyer("Nakagawa", 1205000, "Boroondara Bank"), buyer("Ellery", 1178000, "cash")],
+        reserve: 1200000,
+        auctionOn: "2026-10-17",
+        contract: null, history: [], feed: [
+          { d: "2026-10-11", t: "Final inspection &mdash; <b>2 bidders</b> registered" },
+          { d: "2026-09-26", t: "Campaign launched, auction 17 Oct" }
+        ]
+      },
+      {
+        id: "ardoyne",
+        address: "22 Ardoyne Road",
+        suburb: "Corinda",
+        state: "QLD",
+        vendor: "T. Okonkwo",
+        method: "treaty",
+        guide: 890000,
+        rate: 0.025,
+        payOn: "unconditional",
+        stage: "cooling",
+        date: TODAY,
+        docs: { form6: true, disclosure: true, title: true },
+        buyers: [buyer("Whitlam", 905000, "Sunstate Building Society")],
+        contract: {
+          who: "Whitlam", price: 905000, deposit: 90500,
+          exchanged: "2026-10-09", coolEnds: null, coolSkipped: [],
+          settlementDue: "2026-11-20",
+          finance: "pending", inspection: "pending", title: "pending",
+          accrued: 22625, paid: null
+        },
+        history: [], feed: [
+          { d: "2026-10-09", t: "Contracts exchanged with <b>Whitlam</b> at $905,000" },
+          { d: "2026-10-07", t: "Offer accepted after two counters" }
+        ]
+      },
+      {
+        id: "marine",
+        address: "51 Marine Parade",
+        suburb: "Manly",
+        state: "NSW",
+        vendor: "S. Achterberg",
+        method: "set_date",
+        guide: 2400000,
+        rate: 0.022,
+        payOn: "settlement",
+        stage: "back_on_market",
+        date: TODAY,
+        docs: { contract: true, title: true, drainage: true, planning: true },
+        buyers: [
+          Object.assign(buyer("Rasmussen", 2480000, "Northern Trust"), { status: "rescinded" }),
+          buyer("Pettifer", 2445000, "Meridian Bank"),
+          buyer("Choudhury", 2412000, "cash")
+        ],
+        contract: null,
+        history: [{
+          who: "Rasmussen", price: 2480000, exchanged: "2026-09-28", ended: "2026-10-06",
+          why: "Rescinded during cooling off", forfeit: 6200, forfeitTo: "vendor",
+          accrued: 54560, outcome: "written back"
+        }],
+        feed: [
+          { d: "2026-10-06", t: "<b>Rasmussen rescinded</b> &mdash; $6,200 forfeited to the vendor", bad: true },
+          { d: "2026-09-28", t: "Contracts exchanged with <b>Rasmussen</b> at $2,480,000" },
+          { d: "2026-09-25", t: "Offers closed &mdash; three received" }
+        ]
+      }
+    ];
+  }
+
+  var listings = makeListings();
+  var current = "kurraba";
+  function L() { return listings.filter(function (x) { return x.id === current; })[0]; }
+  function ST(l) { return STATES[l.state]; }
+
+  function note(l, text, bad) { l.feed.unshift({ d: l.date, t: text, bad: !!bad }); }
+  function commission(l, price) { return Math.round(price * l.rate); }
+
+  /* ---------------- stages ---------------- */
+
+  var STAGE_LABEL = {
+    prep: "Preparing", marketing: "On market", offers_open: "Offers open",
+    offers_in: "Offers in", auction_day: "Auction", negotiating: "Negotiating",
+    exchanged: "Exchanged", cooling: "Cooling off", conditions: "Conditions",
+    awaiting_settlement: "Awaiting settlement", settled: "Settled",
+    back_on_market: "Back on market", withdrawn: "Withdrawn"
+  };
+
+  function strip(l) {
+    var m = l.method;
+    var mid = m === "auction" ? ["On market", "Auction", "Exchanged"]
+      : m === "set_date" ? ["On market", "Offers", "Exchanged"]
+      : ["On market", "Negotiating", "Exchanged"];
+    return ["Prepared"].concat(mid).concat(["Cooling off", "Conditions", "Settled"]);
+  }
+
+  function stripIndex(l) {
+    switch (l.stage) {
+      case "prep": return 0;
+      case "marketing": return 1;
+      case "offers_open": case "offers_in": case "auction_day": case "negotiating": return 2;
+      case "back_on_market": return 2;
+      case "exchanged": return 3;
+      case "cooling": return 4;
+      case "conditions": return 5;
+      case "awaiting_settlement": return 5;
+      case "settled": return 6;
+      default: return 0;
+    }
+  }
+
+  function pillFor(l) {
+    if (l.stage === "settled") return { cls: "ok", text: "Settled" };
+    if (l.stage === "withdrawn") return { cls: "bad", text: "Withdrawn" };
+    if (l.stage === "back_on_market") return { cls: "bad", text: "Back on market" };
+    if (l.stage === "cooling" || l.stage === "conditions" || l.stage === "exchanged" || l.stage === "awaiting_settlement")
+      return { cls: "ok", text: "Under contract" };
+    return { cls: "act", text: STAGE_LABEL[l.stage] };
+  }
+
+  /* ---------------- what needs you ---------------- */
+
+  function prompt(l) {
+    var st = ST(l), c = l.contract;
+    switch (l.stage) {
+      case "prep": return { title: "Waiting on the vendor's solicitor", sub: "The property can't go to market until the contract is prepared." };
+      case "marketing": return { title: "Campaign is live", sub: "Buyers are inspecting. Move to offers when you're ready." };
+      case "offers_open": return { title: "Offers close " + dayDate(l.offerDeadline) + " at 5pm", sub: l.buyers.length + " buyers have the contract." };
+      case "offers_in": return { title: "Work the offers", sub: "Counter or accept each buyer. They move independently." };
+      case "negotiating": return { title: "Present to the vendor", sub: "Every buyer has come back. Time to choose." };
+      case "auction_day": return { title: "Auction " + dayDate(l.auctionOn), sub: "Reserve " + money(l.reserve) + ", agreed in writing with the vendor." };
+      case "cooling": return { title: "Cooling off ends " + dayDate(c.coolEnds) + " at 5pm",
+        sub: st.coolDays + " business days" + (c.coolSkipped.length ? ", skipping " + c.coolSkipped.join(" and ") : "") + " from exchange." };
+      case "conditions": return { title: "Conditions to satisfy", sub: "The sale is not secure until all three clear." };
+      case "awaiting_settlement": return { title: "Settlement " + dayDate(c.settlementDue), sub: "Booked in PEXA with both conveyancers." };
+      case "back_on_market": return { title: "Re-approach the underbidders", sub: "The contract fell through. Your buyer register is still warm." };
+      case "settled": return { title: "Settled", sub: "Nothing further needed." };
+      case "withdrawn": return { title: "Listing withdrawn", sub: "The vendor took the property off the market." };
+    }
+    return null;
+  }
+
+  /* ---------------- transitions ---------------- */
+
+  function exchange(l, who, price) {
+    var st = ST(l);
+    l.contract = {
+      who: who, price: price, deposit: Math.round(price * 0.1),
+      exchanged: l.date, coolEnds: null, coolSkipped: [],
+      settlementDue: addDays(l.date, 42),
+      finance: "pending", inspection: "pending", title: "pending",
+      accrued: commission(l, price), paid: null
+    };
+    note(l, "Contracts exchanged with <b>" + who + "</b> at " + money(price));
+
+    if (l.method === "auction" && !l.passedIn) {
+      l.stage = "conditions";
+      l.contract.finance = "satisfied";
+      l.contract.inspection = "satisfied";
+      note(l, "Unconditional on the fall of the hammer &mdash; <b>no cooling off</b> at auction");
+      l.contract.title = "pending";
+    } else {
+      var r = addBusinessDays(l.date, st.coolDays, l.state);
+      l.contract.coolEnds = r.date;
+      l.contract.coolSkipped = r.skipped;
+      l.stage = "cooling";
+      note(l, "Cooling off runs to 5pm <b>" + dayDate(r.date) + "</b>" + (r.skipped.length ? " &mdash; skips " + r.skipped.join(", ") : ""));
+    }
+  }
+
+  function fallThrough(l, why, opts) {
+    opts = opts || {};
+    var c = l.contract;
+    l.history.unshift({
+      who: c.who, price: c.price, exchanged: c.exchanged, ended: l.date,
+      why: why, forfeit: opts.forfeit || 0, forfeitTo: opts.forfeitTo || "vendor",
+      accrued: c.accrued, outcome: opts.paid ? "paid from the forfeited deposit" : "written back"
+    });
+    var b = l.buyers.filter(function (x) { return x.name === c.who; })[0];
+    if (b) b.status = opts.buyerStatus || "out";
+    l.contract = null;
+
+    var left = l.buyers.filter(function (x) { return x.status === "interested"; });
+    if (left.length) {
+      l.stage = "back_on_market";
+      note(l, "Back on market &mdash; <b>" + left.length + " underbidder" + (left.length > 1 ? "s" : "") + "</b> still on the register");
+    } else {
+      l.stage = "marketing";
+      note(l, "Back on market &mdash; <b>no buyers left</b> on the register, relaunching the campaign", true);
+    }
+  }
+
+  function settle(l) {
+    var c = l.contract;
+    c.paid = l.date;
+    l.stage = "settled";
+    note(l, "<b>Settled</b> &mdash; title transferred, keys released");
+    note(l, "Commission <b>" + money(c.accrued) + "</b> paid from the deposit held in trust");
+  }
+
+  function checkConditions(l) {
+    var c = l.contract;
+    if (c.finance === "satisfied" && c.inspection === "satisfied" && c.title === "satisfied") {
+      note(l, "All conditions satisfied &mdash; the contract is <b>unconditional</b>");
+      if (l.payOn === "unconditional") {
+        c.paid = l.date;
+        note(l, "Commission <b>" + money(c.accrued) + "</b> paid &mdash; payable on unconditional under this agreement");
+      }
+      l.stage = "awaiting_settlement";
+    }
+  }
+
+  /* ---------------- actions ---------------- */
+
+  function actions(l) {
+    var st = ST(l), c = l.contract, out = [];
+
+    if (l.stage === "prep") {
+      out.push({ label: "Contract received from the vendor's solicitor", hint: st.docs.map(function (d) { return d[1]; }).join(", "), key: true, run: function () {
+        l.date = addDays(l.date, 5);
+        st.docs.forEach(function (d) { l.docs[d[0]] = true; });
+        l.stage = "marketing";
+        note(l, "Contract and prescribed documents received &mdash; <b>cleared to market</b>");
+      } });
+      out.push({ label: "Vendor withdraws", no: true, run: function () { l.stage = "withdrawn"; note(l, "<b>Vendor withdrew</b> before launch", true); } });
+      return out;
+    }
+
+    if (l.stage === "marketing") {
+      out.push({ label: l.method === "auction" ? "Set the auction date" : l.method === "set_date" ? "Set the offer deadline" : "Open to offers", key: true, run: function () {
+        l.date = addDays(l.date, 21);
+        if (l.method === "auction") { l.auctionOn = addDays(l.date, 5); l.reserve = Math.round(l.guide * 1.02); l.stage = "auction_day"; note(l, "Auction set for <b>" + dayDate(l.auctionOn) + "</b>, reserve " + money(l.reserve)); }
+        else if (l.method === "set_date") { l.offerDeadline = addDays(l.date, 4); l.stage = "offers_open"; note(l, "Offers close <b>" + dayDate(l.offerDeadline) + " 5pm</b>"); }
+        else { l.stage = "negotiating"; l.buyers[0].status = "offer"; note(l, "Offer received from <b>" + l.buyers[0].name + "</b> at " + money(l.buyers[0].amount)); }
+      } });
+      out.push({ label: "Vendor withdraws", no: true, run: function () { l.stage = "withdrawn"; note(l, "<b>Vendor withdrew</b> mid-campaign", true); } });
+      return out;
+    }
+
+    if (l.stage === "offers_open") {
+      out.push({ label: "Offers close &mdash; 5pm " + dayDate(l.offerDeadline), hint: l.buyers.length + " offers received", key: true, run: function () {
+        l.date = l.offerDeadline;
+        l.buyers.forEach(function (b) { if (b.status === "interested") b.status = "offer"; });
+        l.stage = "offers_in";
+        note(l, "Offers closed &mdash; <b>" + l.buyers.length + " received</b>");
+      } });
+      return out;
+    }
+
+    if (l.stage === "offers_in") {
+      l.buyers.filter(function (b) { return b.status === "offer" || b.status === "countered"; }).forEach(function (b) {
+        if (b.status === "offer") {
+          out.push({ group: b.name, label: "Counter at " + money(b.amount + 25000), run: function () {
+            l.date = addDays(l.date, 1); b.amount += 25000; b.status = "countered";
+            note(l, "Countered <b>" + b.name + "</b> at " + money(b.amount));
+          } });
+          out.push({ group: b.name, label: "Hold at " + money(b.amount), run: function () {
+            l.date = addDays(l.date, 1); b.status = "final";
+            note(l, b.name + " holds at <b>" + money(b.amount) + "</b>");
+            allIn(l);
+          } });
+        } else {
+          out.push({ group: b.name, label: "Improves to " + money(b.amount + 12000), key: true, run: function () {
+            l.date = addDays(l.date, 1); b.amount += 12000; b.status = "final";
+            note(l, b.name + " improved to <b>" + money(b.amount) + "</b>");
+            allIn(l);
+          } });
+        }
+        out.push({ group: b.name, label: "Withdraws", no: true, run: function () {
+          l.date = addDays(l.date, 1); b.status = "out";
+          note(l, "<b>" + b.name + "</b> withdrew", true);
+          allIn(l);
+        } });
+      });
+      return out;
+    }
+
+    if (l.stage === "negotiating") {
+      if (l.method === "treaty" || l.passedIn) {
+        var b0 = l.buyers.filter(function (b) { return b.status === "offer" || b.status === "countered"; })[0];
+        if (b0) {
+          out.push({ label: "Vendor accepts " + money(b0.amount), key: true, run: function () {
+            l.date = addDays(l.date, 1); b0.status = "accepted"; exchange(l, b0.name, b0.amount);
+          } });
+          out.push({ label: "Counter at " + money(b0.amount + 30000), run: function () {
+            l.date = addDays(l.date, 2); b0.amount += 30000; b0.status = "countered";
+            note(l, "Countered <b>" + b0.name + "</b> at " + money(b0.amount));
+          } });
+          out.push({ label: b0.name + " walks away", no: true, run: function () {
+            l.date = addDays(l.date, 1); b0.status = "out";
+            note(l, "<b>" + b0.name + "</b> walked away", true);
+            var left = l.buyers.filter(function (x) { return x.status === "interested"; });
+            if (left.length) { l.stage = "back_on_market"; } else { l.stage = "marketing"; }
+          } });
+          return out;
+        }
+      }
+      l.buyers.filter(function (b) { return b.status === "final"; })
+        .sort(function (a, b) { return b.amount - a.amount; })
+        .forEach(function (b, i) {
+          out.push({ label: "Vendor accepts " + b.name + " at " + money(b.amount),
+            hint: b.lender === "cash" ? "Cash purchase" : "Finance through " + b.lender, key: i === 0, run: function () {
+              l.date = addDays(l.date, 1);
+              l.buyers.forEach(function (x) { if (x.status === "final") x.status = x === b ? "accepted" : "missed"; });
+              note(l, "Vendor accepted <b>" + b.name + "</b> at " + money(b.amount));
+              exchange(l, b.name, b.amount);
+            } });
+        });
+      return out;
+    }
+
+    if (l.stage === "auction_day") {
+      out.push({ label: "Sold under the hammer at " + money(l.buyers[0].amount + 25000), hint: "Above reserve &mdash; unconditional immediately", key: true, run: function () {
+        l.date = l.auctionOn;
+        var price = l.buyers[0].amount + 25000;
+        l.buyers[0].status = "accepted";
+        note(l, "<b>Sold under the hammer</b> at " + money(price) + " to " + l.buyers[0].name);
+        exchange(l, l.buyers[0].name, price);
+      } });
+      out.push({ label: "Passed in at " + money(l.reserve - 40000), hint: "Negotiate with the highest bidder", run: function () {
+        l.date = l.auctionOn;
+        l.passedIn = true;
+        l.buyers[0].amount = l.reserve - 40000;
+        l.buyers[0].status = "offer";
+        l.stage = "negotiating";
+        note(l, "<b>Passed in</b> at " + money(l.buyers[0].amount) + " &mdash; negotiating with " + l.buyers[0].name, true);
+      } });
+      return out;
+    }
+
+    if (l.stage === "cooling") {
+      out.push({ label: "Cooling off ends &mdash; contract holds", hint: "5pm " + dayDate(c.coolEnds), key: true, run: function () {
+        l.date = c.coolEnds;
+        l.stage = "conditions";
+        note(l, "Cooling off ended &mdash; <b>contract holds</b>");
+      } });
+      out.push({ label: c.who + " rescinds during cooling off", no: true, run: function () {
+        l.date = addDays(l.date, 2);
+        var f = Math.round(c.price * st.forfeit);
+        note(l, "<b>" + c.who + " rescinded</b> &mdash; " + money(f) + " forfeited (" + st.forfeitLabel + "), balance refunded", true);
+        note(l, "Commission " + money(c.accrued) + " <b>written back</b> &mdash; it dies with the contract", true);
+        fallThrough(l, "Rescinded during cooling off", { forfeit: f, buyerStatus: "rescinded" });
+      } });
+      return out;
+    }
+
+    if (l.stage === "conditions") {
+      if (c.finance === "pending") {
+        var cash = (l.buyers.filter(function (b) { return b.name === c.who; })[0] || {}).lender === "cash";
+        out.push({ group: "Finance", label: cash ? "Cash purchase &mdash; no finance needed" : "Lender approves finance", run: function () {
+          l.date = addDays(l.date, 8); c.finance = "satisfied";
+          note(l, "Finance " + (cash ? "not required &mdash; <b>cash purchase</b>" : "<b>approved</b>"));
+          checkConditions(l);
+        } });
+        if (!cash) out.push({ group: "Finance", label: "Lender declines", no: true, run: function () {
+          l.date = addDays(l.date, 8);
+          note(l, "<b>Finance declined</b> &mdash; contract terminated, full deposit refunded", true);
+          note(l, "Commission " + money(c.accrued) + " <b>written back</b>", true);
+          fallThrough(l, "Finance declined", { buyerStatus: "out" });
+        } });
+      }
+      if (c.inspection === "pending") out.push({ group: "Building &amp; pest", label: "Report accepted", run: function () {
+        l.date = addDays(l.date, 4); c.inspection = "satisfied";
+        note(l, "Building and pest <b>accepted</b>");
+        checkConditions(l);
+      } });
+      if (c.title === "pending") out.push({ group: "Title", label: "Searches return clear", run: function () {
+        l.date = addDays(l.date, 3); c.title = "satisfied";
+        note(l, "Title searches <b>clear</b>");
+        checkConditions(l);
+      } });
+      return out;
+    }
+
+    if (l.stage === "awaiting_settlement") {
+      out.push({ label: "Settlement completes", hint: dayDate(c.settlementDue) + " in PEXA", key: true, run: function () {
+        l.date = c.settlementDue; settle(l);
+      } });
+      out.push({ label: c.who + " defaults at settlement", no: true, run: function () {
+        l.date = addDays(c.settlementDue, 14);
+        note(l, "<b>" + c.who + " defaulted</b> &mdash; deposit " + money(c.deposit) + " forfeited", true);
+        note(l, "Commission " + money(c.accrued) + " <b>paid from the forfeited deposit</b>, balance to the vendor");
+        fallThrough(l, "Buyer defaulted at settlement", { forfeit: c.deposit, paid: true, buyerStatus: "defaulted" });
+      } });
+      return out;
+    }
+
+    if (l.stage === "back_on_market") {
+      l.buyers.filter(function (b) { return b.status === "interested"; })
+        .sort(function (a, b) { return b.amount - a.amount; })
+        .forEach(function (b, i) {
+          out.push({ label: "Re-approach " + b.name + " at " + money(b.amount),
+            hint: b.lender === "cash" ? "Cash purchase" : "Finance through " + b.lender, key: i === 0, run: function () {
+              l.date = addDays(l.date, 3);
+              b.status = "offer";
+              l.method = "treaty";
+              l.passedIn = false;
+              l.stage = "negotiating";
+              note(l, "<b>" + b.name + "</b> re-offers " + money(b.amount) + " &mdash; back in negotiation");
+            } });
+        });
+      out.push({ label: "Relaunch the campaign", hint: "Fresh marketing, new buyers", run: function () {
+        l.date = addDays(l.date, 7);
+        l.stage = "marketing";
+        note(l, "Campaign relaunched");
+      } });
+      return out;
+    }
+
+    return out;
+  }
+
+  function allIn(l) {
+    var open = l.buyers.filter(function (b) { return b.status === "offer" || b.status === "countered"; });
+    if (open.length) return;
+    var fin = l.buyers.filter(function (b) { return b.status === "final"; });
+    if (!fin.length) {
+      l.stage = "marketing";
+      note(l, "<b>Every offer withdrew</b> &mdash; back to marketing", true);
+      return;
+    }
+    l.stage = "negotiating";
+    note(l, "All buyers have responded &mdash; <b>" + fin.length + " live offer" + (fin.length > 1 ? "s" : "") + "</b> to present");
+  }
+
+  /* ---------------- render ---------------- */
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(x) { return String(x); }
+
+  function renderRail() {
+    $("rail-count").textContent = listings.length;
+    $("rail").innerHTML = listings.map(function (l) {
+      var p = pillFor(l);
+      var price = l.contract ? l.contract.price : l.guide;
+      var cap = l.contract ? "under contract" : "guide";
+      return '<button class="lst ' + (l.id === current ? "on" : "") + '" data-id="' + l.id + '">' +
+        '<div class="addr">' + l.address + "</div>" +
+        '<div class="sub">' + l.suburb + " &middot; " + l.state + " &middot; " + METHOD[l.method] + "</div>" +
+        '<div class="foot"><span class="amt">' + short(price) + " <span style='color:var(--ink-3)'>" + cap + "</span></span>" +
+        '<span class="pill ' + p.cls + '">' + p.text + "</span></div></button>";
+    }).join("");
+    Array.prototype.forEach.call($("rail").querySelectorAll(".lst"), function (b) {
+      b.addEventListener("click", function () { current = b.getAttribute("data-id"); render(); });
+    });
+  }
+
+  function renderMain() {
+    var l = L(), c = l.contract, st = ST(l), p = pillFor(l);
+    var steps = strip(l), at = stripIndex(l);
+    var pr = prompt(l);
+    var acts = actions(l);
+
+    var head =
+      '<div class="lh"><div>' +
+      '<div class="eyebrow">' + l.suburb + " &middot; " + st.name + " &middot; " + METHOD[l.method] + "</div>" +
+      "<h1>" + l.address + "</h1>" +
+      '<div class="meta">Vendor ' + l.vendor + " &middot; " + (l.rate * 100).toFixed(2) + "% inc GST, payable on " + l.payOn + "</div>" +
+      "</div><div class='headline'>" +
+      "<div class='big'>" + money(c ? c.price : l.guide) + "</div>" +
+      "<div class='cap'>" + (c ? "under contract" : "guide") + "</div>" +
+      "</div></div>";
+
+    var progress = '<div class="prog">' + steps.map(function (label, i) {
+      var cls = i < at ? "done" : i === at ? "now" : "";
+      if (l.stage === "back_on_market" && i === at) cls = "gone";
+      if (l.stage === "withdrawn" && i === at) cls = "gone";
+      var when = "";
+      if (label === "Offers" && l.offerDeadline && l.stage === "offers_open") when = "closes " + shortDate(l.offerDeadline);
+      if (label === "Auction" && l.auctionOn && l.stage === "auction_day") when = shortDate(l.auctionOn);
+      if (label === "Cooling off" && c && c.coolEnds) when = "to " + shortDate(c.coolEnds);
+      if (label === "Exchanged" && c) when = shortDate(c.exchanged);
+      if (label === "Settled" && c && c.settlementDue) when = "due " + shortDate(c.settlementDue);
+      return '<div class="st ' + cls + '"><div class="lab">' + label + '</div><div class="when">' + when + "</div></div>";
+    }).join("") + "</div>";
+
+    var banner = "";
+    if (l.stage === "back_on_market") {
+      var h = l.history[0];
+      banner = '<div class="banner"><b>The sale to ' + h.who + " fell through.</b> " + h.why +
+        (h.forfeit ? " &mdash; " + money(h.forfeit) + " forfeited to the " + h.forfeitTo : "") +
+        ". The contract and marketing still stand, so the underbidders can be re-approached without relisting.</div>";
+    }
+
+    var actCard = "";
+    if (pr && acts.length) {
+      var lastGroup = null;
+      var body = acts.map(function (a, i) {
+        var pre = "";
+        if (a.group && a.group !== lastGroup) { pre = '<div class="grp">' + a.group + "</div>"; lastGroup = a.group; }
+        return pre + '<button class="do ' + (a.key ? "key" : "") + (a.no ? " no" : "") + '" data-i="' + i + '">' +
+          a.label + (a.hint ? '<span class="hint">' + a.hint + "</span>" : "") + "</button>";
+      }).join("");
+      actCard = '<div class="card now"><header><h3>' + pr.title + '</h3><span class="pill act">Needs you</span></header>' +
+        '<div class="pad"><div style="color:var(--ink-2);font-size:13.5px;margin-bottom:14px">' + pr.sub + "</div>" +
+        '<div class="acts">' + body + "</div></div></div>";
+    } else if (pr) {
+      actCard = '<div class="card"><header><h3>' + pr.title + "</h3></header><div class='pad' style='color:var(--ink-2);font-size:13.5px'>" + pr.sub + "</div></div>";
+    }
+
+    var offersCard = "";
+    var showBuyers = ["offers_open", "offers_in", "negotiating", "auction_day", "back_on_market"].indexOf(l.stage) >= 0;
+    if (showBuyers) {
+      offersCard = '<div class="card"><header><h3>' + (l.method === "auction" ? "Registered bidders" : "Buyers") + "</h3>" +
+        '<span class="eyebrow">' + l.buyers.filter(function (b) { return b.status !== "out" && b.status !== "rescinded" && b.status !== "defaulted"; }).length + " active</span></header>" +
+        '<div class="tblwrap"><table class="tbl"><thead><tr><th>Buyer</th><th>Amount</th><th>Position</th></tr></thead><tbody>' +
+        l.buyers.map(function (b) {
+          var dead = ["out", "rescinded", "defaulted", "missed"].indexOf(b.status) >= 0;
+          var pos = { interested: "Holds the contract", offer: "Offer on the table", countered: "Countered, awaiting reply",
+            final: "Best and final", accepted: "Accepted", missed: "Not selected", out: "Withdrew",
+            rescinded: "Rescinded", defaulted: "Defaulted" }[b.status];
+          return "<tr class='" + (dead ? "out" : b.status === "accepted" ? "win" : "") + "'>" +
+            "<td><div class='who'>" + b.name + "</div><div class='fin'>" + (b.lender === "cash" ? "Cash purchase" : b.lender) + "</div></td>" +
+            "<td class='amt'>" + money(b.amount) + "</td><td>" + pos + "</td></tr>";
+        }).join("") + "</tbody></table></div></div>";
+    }
+
+    var condCard = "";
+    if (c && ["conditions", "awaiting_settlement", "settled"].indexOf(l.stage) >= 0) {
+      var items = [["Finance", c.finance], ["Building &amp; pest", c.inspection], ["Title searches", c.title]];
+      condCard = '<div class="card"><header><h3>Conditions</h3></header><div class="chk">' +
+        items.map(function (it) {
+          var on = it[1] === "satisfied";
+          return '<div class="item ' + (on ? "on" : "") + '"><span class="box">' + (on ? "[x]" : "[ ]") + '</span><span class="lb">' + it[0] + "</span></div>";
+        }).join("") + "</div></div>";
+    }
+
+    var histCard = "";
+    if (l.history.length) {
+      histCard = '<div class="card gone"><header><h3>Contracts that fell through</h3><span class="eyebrow">' + l.history.length + "</span></header>" +
+        l.history.map(function (h) {
+          return '<div class="hist"><div class="hh"><span class="who">' + h.who + '</span><span class="amt">' + money(h.price) + "</span></div>" +
+            '<div class="why">' + h.why + " on " + dayDate(h.ended) + " &middot; exchanged " + dayDate(h.exchanged) +
+            (h.forfeit ? " &middot; " + money(h.forfeit) + " forfeited to the " + h.forfeitTo : "") +
+            " &middot; commission " + money(h.accrued) + " " + h.outcome + "</div></div>";
+        }).join("") + "</div>";
+    }
+
+    $("main").innerHTML = head + progress + banner + actCard + offersCard + condCard + histCard;
+
+    Array.prototype.forEach.call($("main").querySelectorAll("button.do"), function (b) {
+      b.addEventListener("click", function () {
+        acts[+b.getAttribute("data-i")].run();
+        render();
+      });
+    });
+  }
+
+  function renderAside() {
+    var l = L(), c = l.contract, st = ST(l);
+
+    var earned = 0, writtenBack = 0, forfeited = 0;
+    l.history.forEach(function (h) {
+      if (h.outcome.indexOf("paid") === 0) earned += h.accrued; else writtenBack += h.accrued;
+      forfeited += h.forfeit || 0;
+    });
+    if (c && c.paid) earned += c.accrued;
+
+    var hero;
+    if (c && c.paid) hero = { big: money(c.accrued), cap: "Paid " + dayDate(c.paid) };
+    else if (c) hero = { big: money(c.accrued),
+      cap: l.payOn === "unconditional" ? "Payable when conditions clear" : "Payable on settlement, due " + dayDate(c.settlementDue) };
+    else hero = { big: money(commission(l, l.guide)), cap: "Estimated at the guide price" };
+
+    var moneyRows = [
+      ["Sale price", c ? money(c.price) : "—", c ? "ok" : ""],
+      ["Deposit in trust", c ? money(c.deposit) : "—", ""],
+      ["Paid to date", earned ? money(earned) : "—", earned ? "ok" : ""],
+      ["Written back", writtenBack ? money(writtenBack) : "—", writtenBack ? "bad" : ""],
+      ["Forfeited to vendor", forfeited ? money(forfeited) : "—", forfeited ? "bad" : ""]
+    ];
+
+    var docsDone = st.docs.filter(function (d) { return l.docs[d[0]]; }).length;
+
+    $("aside").innerHTML =
+      '<div class="asec"><header><span class="eyebrow">Your commission</span>' +
+      '<span class="eyebrow">' + (l.rate * 100).toFixed(2) + "%</span></header>" +
+      '<div class="money-hero"><div class="big">' + hero.big + '</div><div class="cap">' + hero.cap + "</div></div>" +
+      moneyRows.map(function (r) {
+        return '<div class="row"><span class="k">' + r[0] + '</span><span class="v ' + r[2] + '">' + r[1] + "</span></div>";
+      }).join("") + "</div>" +
+
+      '<div class="asec"><header><span class="eyebrow">' + l.state + " requirements</span>" +
+      '<span class="eyebrow">' + docsDone + " of " + st.docs.length + "</span></header><div class=\"chk\">" +
+      st.docs.map(function (d) {
+        var on = !!l.docs[d[0]];
+        return '<div class="item ' + (on ? "on" : "") + '"><span class="box">' + (on ? "[x]" : "[ ]") + '</span><span class="lb">' + d[1] + "</span></div>";
+      }).join("") +
+      '<div class="row"><span class="k">Cooling off<small>' + (l.method === "auction" ? "not applicable at auction" : "from exchange") + '</small></span>' +
+      '<span class="v">' + (l.method === "auction" && !l.passedIn ? "exempt" : st.coolDays + " bus. days") + "</span></div>" +
+      '<div class="row"><span class="k">Forfeit on rescission</span><span class="v">' + st.forfeitLabel + "</span></div>" +
+      "</div></div>" +
+
+      '<div class="asec"><header><span class="eyebrow">Activity</span>' +
+      '<span class="eyebrow">' + fullDate(l.date) + "</span></header><ul class=\"feed\">" +
+      l.feed.map(function (e) {
+        return '<li class="' + (e.bad ? "bad" : "") + '"><time>' + shortDate(e.d) + '</time><span class="txt">' + e.t + "</span></li>";
+      }).join("") + "</ul></div>";
+  }
+
+  function render() { renderRail(); renderMain(); renderAside(); }
+
+  render();
+})();
+</script>
