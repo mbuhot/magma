@@ -21,6 +21,10 @@ defmodule Magma.Test.Effects do
 
   def undo_should_fail?(name), do: Agent.get(__MODULE__, &Map.get(&1, {:fail_undo, name}, false))
 
+  def fail_init, do: Agent.update(__MODULE__, &Map.put(&1, :fail_init, true))
+
+  def init_should_fail?, do: Agent.get(__MODULE__, &Map.get(&1, :fail_init, false))
+
   def count(name), do: Agent.get(__MODULE__, &Map.get(&1, name, 0))
 
   def counts, do: Agent.get(__MODULE__, & &1)

@@ -31,15 +31,36 @@ defmodule Magma.Unwind do
   """
   @spec run(Ash.Resource.record()) :: {:ok, [term()]} | {:error, [term()]}
   def run(workflow) do
-    steps = resolvable_steps(workflow)
-    standing = Store.standing(workflow.id)
-    results = results_by_name(standing, steps)
+    reactor = Reactor.Info.to_struct!(workflow.module)
 
+    case prepare(reactor, workflow) do
+      {:ok, context} -> unwind(reactor, workflow, context)
+      {:error, reason} -> {:error, [{:middleware_failed, reason}]}
+    end
+  end
+
+  # The forward path gets its context from `Reactor.run/4`, which hands each middleware a
+  # chance to rewrite it before any step runs. An undo is driven from here rather than from the
+  # executor, so the same hooks are run over the same context — a middleware that loads the
+  # actor has to have loaded it before a step is asked to take its work back.
+  defp prepare(reactor, workflow) do
     context = %{
       actor: workflow.actor,
       tenant: workflow.tenant,
+      run_id: make_ref(),
       magma: %Magma.Run{workflow_id: workflow.id, checkpoints: %{}}
     }
+
+    Reactor.Executor.Hooks.init(
+      %{reactor | middleware: [Magma.Middleware | reactor.middleware]},
+      context
+    )
+  end
+
+  defp unwind(reactor, workflow, context) do
+    steps = resolvable_steps(reactor)
+    standing = Store.standing(workflow.id)
+    results = results_by_name(standing, steps)
 
     {unresolved, errors} =
       standing
@@ -125,9 +146,7 @@ defmodule Magma.Unwind do
   # Declared steps, whatever they nest, and the children an inlining composite generates. A
   # `map` element or a `switch` branch is materialised by driving its parent, which reads its
   # source and returns steps without doing anything of its own.
-  defp resolvable_steps(workflow) do
-    reactor = Reactor.Info.to_struct!(workflow.module)
-
+  defp resolvable_steps(reactor) do
     reactor.steps
     |> Enum.flat_map(&expand/1)
     |> Map.new(&{Key.for(&1.name), &1})

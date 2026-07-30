@@ -157,6 +157,27 @@ defmodule Magma.UnwindTest do
     assert Effects.count({:undo, :charge}) == 1
   end
 
+  test "an undo sees the context the workflow's middleware prepared" do
+    {:ok, workflow} = Magma.start(Workflows.Prepared, %{order_id: "ord_1"})
+    drain()
+
+    {:ok, []} = Magma.Unwind.run(reload(workflow))
+
+    assert Effects.count({:undo, :quote, :yes}) == 1
+    assert Effects.count({:undo, :charge, :yes}) == 1
+  end
+
+  test "a middleware that cannot prepare the context fails the rollback" do
+    {:ok, workflow} = Magma.start(Workflows.Prepared, %{order_id: "ord_1"})
+    drain()
+
+    Effects.fail_init()
+
+    assert {:error, [{:middleware_failed, _reason}]} = Magma.Unwind.run(reload(workflow))
+    assert Effects.count({:undo, :quote, :yes}) == 0
+    assert length(Store.standing(workflow.id)) == 2
+  end
+
   test "cancelling a workflow the store has never seen reports it" do
     assert {:error, :no_such_workflow} = Magma.cancel("019faae3-0000-7000-8000-000000000000")
   end

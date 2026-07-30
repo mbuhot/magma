@@ -61,6 +61,61 @@ defmodule Magma.Test.Workflows do
     return(:ship)
   end
 
+  defmodule Prepared do
+    @moduledoc false
+
+    defmodule Middleware do
+      @moduledoc false
+      use Reactor.Middleware
+
+      @impl true
+      def init(context) do
+        Effects.record(:middleware_init)
+
+        if Effects.init_should_fail?() do
+          {:error, "cannot prepare the context"}
+        else
+          {:ok, Map.put(context, :prepared, :yes)}
+        end
+      end
+    end
+
+    defmodule Step do
+      @moduledoc false
+      use Reactor.Step
+
+      @impl true
+      def run(_arguments, context, options) do
+        {:ok, {Keyword.fetch!(options, :name), Map.get(context, :prepared)}}
+      end
+
+      @impl true
+      def undo(_value, _arguments, context, options) do
+        Effects.record({:undo, Keyword.fetch!(options, :name), Map.get(context, :prepared)})
+
+        :ok
+      end
+    end
+
+    use Reactor
+
+    middlewares do
+      middleware(Magma.Test.Workflows.Prepared.Middleware)
+    end
+
+    input(:order_id)
+
+    step :quote, {Magma.Test.Workflows.Prepared.Step, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    step :charge, {Magma.Test.Workflows.Prepared.Step, name: :charge} do
+      argument(:quote, result(:quote))
+    end
+
+    return(:charge)
+  end
+
   defmodule Linear do
     @moduledoc false
     use Reactor
