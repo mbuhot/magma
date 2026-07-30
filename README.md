@@ -162,6 +162,7 @@ Two applications you can run, each with a console and a suite.
 |---|---|
 | [`examples/payouts`](examples/payouts) | durability — the checkpoint, the park, the child workflow, the rollback |
 | [`examples/helpdesk`](examples/helpdesk) | the Ash seam — an actor and a tenant named once, honoured everywhere, with authority read afresh on every attempt |
+| [`examples/agency`](examples/agency) | branching — a structural `switch`, a run-time-resolved `dispatch`, and long human waits alongside external systems' polled state |
 
 ## Reading further
 

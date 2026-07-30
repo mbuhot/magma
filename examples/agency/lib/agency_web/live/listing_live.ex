@@ -24,7 +24,7 @@ defmodule AgencyWeb.ListingLive do
   @impl true
   def handle_params(params, _uri, socket) do
     listings = Board.listings()
-    agency_agreement_id = params["id"] || (listings != [] && List.first(listings).id)
+    agency_agreement_id = params["id"] || listing_id_of(List.first(listings))
 
     {:noreply,
      socket
@@ -196,6 +196,9 @@ defmodule AgencyWeb.ListingLive do
 
   defp attempt_workflow_id(board),
     do: Map.fetch!(board.workflows.attempt_workflow_ids, board.attempt.id)
+
+  defp listing_id_of(nil), do: nil
+  defp listing_id_of(listing), do: listing.id
 
   defp signal!(workflow_id, name, payload) do
     {:ok, _signal} = Magma.signal(workflow_id, name, payload)
@@ -395,7 +398,9 @@ defmodule AgencyWeb.ListingLive do
   def render(assigns) do
     ~H"""
     <div :if={@board == nil} class="main">
-      <p class="empty">No listings yet.</p>
+      <p class="empty">
+        No listings yet. Run <code>mix agency.seed</code> to create some.
+      </p>
     </div>
 
     <div :if={@board != nil} class="shell">

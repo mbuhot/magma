@@ -10,6 +10,9 @@ defmodule Magma.Dsl.Poll do
 
   `until` receives the step's arguments and the reactor context, and answers `{:ok, value}` or
   `:not_yet`.
+
+  It cannot sit inside `group`, `around`, `recurse` or `compose`. A status that discriminates
+  several outcomes is the natural shape for the value it returns — see `usage-rules.md`.
   """
 
   defstruct __identifier__: nil,

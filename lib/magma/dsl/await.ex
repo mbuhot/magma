@@ -12,6 +12,9 @@ defmodule Magma.Dsl.Await do
   `result(:confirmation)`, and `wait_for` orders it against steps it reads nothing from.
 
   `timeout` may be resolved at run time, so a cooling-off period can come from an argument.
+
+  It cannot sit inside `group`, `around`, `recurse` or `compose`. Mutually exclusive outcomes
+  are one wait whose signal payload or timeout discriminates the result — see `usage-rules.md`.
   """
 
   defstruct __identifier__: nil,

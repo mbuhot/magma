@@ -71,6 +71,13 @@ defmodule AgencyWeb.ListingLiveTest do
     agreement
   end
 
+  test "an empty database points a newcomer at the seed task", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/")
+
+    assert html =~ "No listings yet"
+    assert html =~ "mix agency.seed"
+  end
+
   test "each seeded listing shows a distinct state of its own", %{conn: conn} do
     seed()
 
