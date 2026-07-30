@@ -51,6 +51,9 @@ defmodule AgencyWeb.Layouts do
   .brand { display: flex; align-items: baseline; gap: 10px; }
   .brand .mark { font-family: var(--f-display); font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
   .brand .desk { color: var(--ink-3); font-size: 13px; }
+  .topnav { display: flex; gap: 18px; font-size: 13px; }
+  .topnav a { color: var(--ink-2); text-decoration: none; }
+  .topnav a:hover { color: var(--accent); }
   .whoami { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); }
   .avatar {
     width: 28px; height: 28px; border-radius: 50%; background: var(--accent-wash);
@@ -201,6 +204,51 @@ defmodule AgencyWeb.Layouts do
   .banner b { color: var(--stop); }
   .flash { padding: 12px 16px; background: var(--accent-wash); border: 1px solid var(--accent); border-radius: 2px; margin-bottom: 20px; font-size: 14px; }
   .flash.error { background: var(--stop-wash); border-color: var(--stop); }
+  .console { padding: 24px 28px 60px; max-width: 1180px; }
+  .console h1 { font-family: var(--f-display); font-size: 26px; font-weight: 600; margin: 0 0 4px; }
+  .console-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start; }
+  @media (max-width: 980px) { .console-grid { grid-template-columns: minmax(0, 1fr); } }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 18px; }
+  .filters button {
+    font: inherit; font-family: var(--f-data); font-size: 11.5px; letter-spacing: 0.04em;
+    padding: 5px 10px; border-radius: 2px; border: 1px solid var(--rule); background: var(--surface);
+    color: var(--ink-2); cursor: pointer;
+  }
+  .filters button:hover { border-color: var(--accent); color: var(--accent); }
+  .filters button.on { border-color: var(--accent); background: var(--accent-wash); color: var(--accent); }
+  .wf-row { cursor: pointer; }
+  .wf-row:hover td { background: var(--paper); }
+  .wf-row.on td { background: var(--accent-wash); }
+  .wf-row .mod { font-weight: 600; }
+  .mono-id { font-family: var(--f-data); color: var(--ink-3); font-size: 12px; }
+  .tree { list-style: none; margin: 0; padding: 0; }
+  .tree ul { list-style: none; margin: 0; padding: 0 0 0 20px; }
+  .tree li { border-left: 1px solid var(--rule-2); }
+  .tree li:last-child { border-left-color: transparent; }
+  .tree-row {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    font: inherit; font-size: 13px; padding: 6px 10px; border: none; background: none;
+    color: inherit; cursor: pointer; border-radius: 2px;
+  }
+  .tree-row:hover { background: var(--paper); }
+  .tree-row.on { background: var(--accent-wash); }
+  .tree-row .mod { font-family: var(--f-data); }
+  .tree-row .via { color: var(--ink-3); font-size: 11.5px; }
+  .detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .detail-head h2 { font-family: var(--f-display); font-size: 20px; margin: 0 0 2px; }
+  .detail-head .parent { font-size: 12.5px; color: var(--ink-3); margin-top: 4px; }
+  .detail-head .parent button { font: inherit; color: var(--accent); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
+  .steps { list-style: none; margin: 0; padding: 0; }
+  .steps li { padding: 10px 16px; border-top: 1px solid var(--rule-2); }
+  .steps li:first-child { border-top: none; }
+  .steps .lab { font-family: var(--f-data); font-size: 13px; font-weight: 600; }
+  .steps details { margin-top: 4px; }
+  .steps summary { font-family: var(--f-data); font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+  .steps pre { font-family: var(--f-data); font-size: 12px; background: var(--sunk); padding: 10px 12px; border-radius: 2px; overflow-x: auto; margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; }
+  .parked { padding: 12px 16px; font-size: 13.5px; }
+  .parked .sig { font-family: var(--f-data); font-weight: 600; }
+  .parked .dl { color: var(--ink-3); font-size: 12.5px; margin-left: 8px; }
+  .note { padding: 10px 16px; font-size: 12.5px; color: var(--ink-3); border-top: 1px solid var(--rule-2); }
   """
 
   def root(assigns) do
@@ -241,6 +289,10 @@ defmodule AgencyWeb.Layouts do
         <span class="mark">Ray &amp; Cole</span>
         <span class="desk">Sales desk</span>
       </div>
+      <nav class="topnav">
+        <.link navigate={~p"/"}>Sales desk</.link>
+        <.link navigate={~p"/console"}>Workflow console</.link>
+      </nav>
       <div class="whoami">
         <span class="avatar">PR</span>
         <span>Priya Chandra &middot; Sales agent</span>

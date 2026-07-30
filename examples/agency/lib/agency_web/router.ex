@@ -17,5 +17,7 @@ defmodule AgencyWeb.Router do
 
     live("/", ListingLive, :index)
     live("/listings/:id", ListingLive, :show)
+    live("/console", ConsoleLive, :index)
+    live("/console/:id", ConsoleLive, :show)
   end
 end
