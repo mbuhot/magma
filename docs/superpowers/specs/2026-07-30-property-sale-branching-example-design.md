@@ -40,17 +40,31 @@ This work opens with a magma fix, because the example's shape depends on the out
 `test/magma/nesting_composite_test.exs` documents the first as intended. The second is a
 defect.
 
-**Order of work.**
+**Outcome — resolved in `0da2576`.** The collision was real and unreachable, because a worse
+failure fires first. `Reactor.Step.Recurse` returns whatever its inner reactor returns, so a
+parked `dispatch` surfaced `{:halted, %Reactor{}}` as the recurse step's own result and
+Reactor rejected it as invalid. The workflow failed with an unreadable struct dump.
 
-1. A failing test pinning `dispatch` inside `recurse`: two iterations, two distinct children.
-2. A fix. Two candidate locations, chosen once the test shows the behaviour:
-   - Reactor names each iteration distinctly, which fixes checkpointing at the same time.
-   - Magma folds `current_iteration` into the derived id, which is contained but leaves the
-     replay characteristic as it stands.
-3. The example, designed against whatever holds after the fix.
+The cause generalises past `recurse`: steps inside `group`, `around`, `recurse` and `compose`
+run in a private reactor magma never decorates, so **no step inside any of them can durably
+wait**. `Magma.Checkpointed` now carries the step it wraps as `:magma_step`, and `await`,
+`poll` and `dispatch` compare it against `:current_step` and raise a message naming the step
+and the composite. `DECISIONS.md` §24 records the constraint.
 
-`switch` needs no such work. `test/magma/composite_test.exs:42` already pins that a switch
-takes the same branch on a later attempt.
+**What stays durable — pinned in `9404b59`.** A `switch` branch and a `map` element are
+materialised into the outer plan and decorated, so both carry durable waits:
+
+| Construct | `await` | `dispatch` |
+|---|---|---|
+| `switch` branch | Yes | Yes |
+| `map` element | Yes, per element | Yes, distinct child per element |
+| `compose`, `group`, `around`, `recurse` | Raises | Raises |
+
+Each case has a paired replay test proving effects do not re-run.
+
+One sharp edge: a signal name is static, so `await`s inside separate `map` elements queue on
+the same name and consume deliveries in element order. Fan-out that needs independent
+signals uses `dispatch` per element, which gives each child its own workflow id.
 
 ## Three answers to "it depends"
 
@@ -80,9 +94,9 @@ the campaign sit above it, because they survive a contract falling over.
 ```
 Agency.Sale.SaleAttempt                    ← one generation
   ▸ switch on sale_method
-      auction    → compose Agency.Sale.Auction
-      set_date   → compose Agency.Sale.SetDateSale
-      treaty     → compose Agency.Sale.PrivateTreaty
+      auction    → dispatch Agency.Sale.Auction
+      set_date   → dispatch Agency.Sale.SetDateSale
+      treaty     → dispatch Agency.Sale.PrivateTreaty
   ← branches rejoin, each returning an exchanged contract
   ▸ switch on cooling_off policy
       applies    → await :cooling_off_expiry, timeout from policy
@@ -93,6 +107,10 @@ Agency.Sale.SaleAttempt                    ← one generation
       on_unconditional → disburse against the accrual
       on_settlement    → disburse from trust
 ```
+
+Each method branch is a `dispatch` to a durable child, because every one of them holds an
+await — the hammer, the offer deadline, the vendor's decision — and a `compose` would raise.
+The branch bodies stay multi-step: a branch may hold several steps around its dispatch.
 
 The method reactors hold the multi-step branch bodies.
 
