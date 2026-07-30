@@ -46,7 +46,8 @@ defmodule Agency.Sale.AuctionTest do
              outcome: :accepted,
              buyer_id: buyer.id,
              offer_id: offer.id,
-             price: 950_000_00
+             price: 950_000_00,
+             via: :hammer
            }
   end
 
@@ -74,7 +75,8 @@ defmodule Agency.Sale.AuctionTest do
              outcome: :accepted,
              buyer_id: highest_bidder.id,
              offer_id: top_bid.id,
-             price: 880_000_00
+             price: 880_000_00,
+             via: :treaty_after_pass_in
            }
 
     assert Sale.get_offer!(top_bid.id).status == :accepted

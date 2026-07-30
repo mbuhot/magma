@@ -24,7 +24,8 @@ defmodule Agency.Sale.PrivateTreatyTest do
              outcome: :accepted,
              buyer_id: buyer.id,
              offer_id: offer.id,
-             price: 870_000_00
+             price: 870_000_00,
+             via: :treaty
            }
 
     assert Sale.get_offer!(offer.id).status == :accepted

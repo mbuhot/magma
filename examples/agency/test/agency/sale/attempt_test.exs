@@ -197,6 +197,7 @@ defmodule Agency.Sale.AttemptTest do
 
       assert the_deposit().status == :forfeited
       assert the_deposit().forfeited_to == "Priya Nair"
+      assert the_deposit().forfeited_amount == 1_800_00
       assert the_commission().outcome == :written_back
       assert reload(attempt).outcome == :rescinded
 
@@ -274,6 +275,7 @@ defmodule Agency.Sale.AttemptTest do
 
       assert the_deposit().status == :forfeited
       assert the_deposit().forfeited_to == "Priya Nair"
+      assert the_deposit().forfeited_amount == 90_000_00
 
       assert recorded(workflow, :buyer_default) == %{
                forfeited: 90_000_00,

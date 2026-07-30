@@ -68,11 +68,11 @@ defmodule Agency.Sale.Attempt.Steps do
     alias Agency.Sale.Jurisdiction
 
     @impl true
-    def run(%{terms: terms, setting: setting}, context, _options) do
-      {:ok, %{terms: terms, governing_window: governing_window(setting, verdict(context))}}
+    def run(%{terms: terms, setting: setting}, _context, _options) do
+      {:ok, %{terms: terms, governing_window: governing_window(setting, terms.via)}}
     end
 
-    defp governing_window(setting, :sold) do
+    defp governing_window(setting, :hammer) do
       if Jurisdiction.cooling_off(setting.jurisdiction).auction == :exempt do
         :exempt
       else
@@ -80,16 +80,7 @@ defmodule Agency.Sale.Attempt.Steps do
       end
     end
 
-    defp governing_window(setting, _passed_in), do: setting.jurisdiction
-
-    defp verdict(context) do
-      context.magma.workflow_id
-      |> Magma.child_id(:auction)
-      |> Magma.steps()
-      |> Enum.find_value(:passed_in, fn checkpoint ->
-        if checkpoint.step_label == inspect(:verdict), do: checkpoint.output
-      end)
-    end
+    defp governing_window(setting, _via), do: setting.jurisdiction
   end
 
   defmodule Exchange do
@@ -192,7 +183,8 @@ defmodule Agency.Sale.Attempt.Steps do
 
       Sale.settle_deposit_status!(exchange.deposit_id, %{
         status: :forfeited,
-        forfeited_to: setting.vendor_name
+        forfeited_to: setting.vendor_name,
+        forfeited_amount: forfeited
       })
 
       Sale.write_back_commission!(exchange.commission_id, %{})
@@ -302,7 +294,8 @@ defmodule Agency.Sale.Attempt.Steps do
 
       Sale.settle_deposit_status!(exchange.deposit_id, %{
         status: :forfeited,
-        forfeited_to: setting.vendor_name
+        forfeited_to: setting.vendor_name,
+        forfeited_amount: exchange.deposit_amount
       })
 
       disburse(setting, exchange, defaulted_at)

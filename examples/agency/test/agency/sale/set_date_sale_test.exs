@@ -66,7 +66,8 @@ defmodule Agency.Sale.SetDateSaleTest do
              outcome: :accepted,
              buyer_id: second.buyer_id,
              offer_id: second.id,
-             price: second.amount
+             price: second.amount,
+             via: :treaty
            }
 
     assert Sale.get_offer!(second.id).status == :accepted

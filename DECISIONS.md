@@ -381,3 +381,33 @@ correct id could not be derived.
 
 **Costs:** waiting inside a loop is expressed by a `map` over the work, or by a child workflow
 that does the looping. A `recurse` in a workflow that waits stays a pure one.
+
+---
+
+## 25. A dispatched child's failure unwinds its caller
+
+`Magma.Step.Dispatch` surfaces a child's error as the dispatching step's own failure, so the
+caller cannot treat a child's failure as data and carry on.
+
+**Why:** a step's return is the only channel Reactor gives a caller, and an `{:error, _}`
+there is defined to end the run — [11](#11-a-crash-retries-an-error-unwinds) applies to a
+dispatched child exactly as it applies to any other step.
+
+**What it means for a workflow:** a child whose failure is an expected outcome returns it as
+a value instead. `Agency.Sale.Conditions` does exactly this: a declined finance comes back as
+`%{outcome: :condition_failed, kind: …}` so the attempt can refund, write the commission back
+and open the next generation.
+
+---
+
+## 26. Alternative signals need one await and a switch
+
+Two sibling awaits waiting on different signal names both park, and a reactor cannot finish
+with one of them unresolved, so only one of the two can ever arrive.
+
+**Why:** magma has no construct for "wait for whichever of these signals lands first and
+cancel the other" — each `await` is its own node the plan must complete.
+
+**What it means for a workflow:** mutually exclusive events share a signal name and are
+distinguished by payload. `Agency.Sale.Attempt` awaits `"settlement.completed"` once and
+switches on the payload to separate a completed settlement from a buyer default.

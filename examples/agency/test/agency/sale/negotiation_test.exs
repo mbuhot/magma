@@ -39,7 +39,8 @@ defmodule Agency.Sale.NegotiationTest do
              outcome: :accepted,
              buyer_id: buyer.id,
              offer_id: offer.id,
-             price: 880_000_00
+             price: 880_000_00,
+             via: :treaty
            }
 
     assert Sale.get_offer!(offer.id).status == :accepted
@@ -78,7 +79,8 @@ defmodule Agency.Sale.NegotiationTest do
              outcome: :accepted,
              buyer_id: buyer.id,
              offer_id: second_counter.id,
-             price: 920_000_00
+             price: 920_000_00,
+             via: :treaty
            }
   end
 

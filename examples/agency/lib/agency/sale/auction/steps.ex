@@ -48,8 +48,21 @@ defmodule Agency.Sale.Auction.Steps do
          outcome: :accepted,
          buyer_id: hammer.buyer_id,
          offer_id: hammer.offer_id,
-         price: hammer.price
+         price: hammer.price,
+         via: :hammer
        }}
     end
+  end
+
+  defmodule AfterPassIn do
+    @moduledoc false
+    use Reactor.Step
+
+    @impl true
+    def run(%{outcome: %{outcome: :accepted} = outcome}, _context, _options) do
+      {:ok, %{outcome | via: :treaty_after_pass_in}}
+    end
+
+    def run(%{outcome: outcome}, _context, _options), do: {:ok, outcome}
   end
 end

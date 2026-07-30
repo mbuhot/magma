@@ -56,7 +56,7 @@ defmodule Agency.Sale.Auction do
         argument(:offer_id, result(:highest_bidder, [:id]))
       end
 
-      step :outcome, Outcome.Reported do
+      step :outcome, Steps.AfterPassIn do
         argument(:outcome, result(:treaty))
       end
     end

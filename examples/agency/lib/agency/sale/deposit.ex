@@ -20,6 +20,7 @@ defmodule Agency.Sale.Deposit do
     )
 
     attribute(:forfeited_to, :string, public?: true)
+    attribute(:forfeited_amount, :integer, public?: true)
     timestamps()
   end
 
@@ -35,7 +36,7 @@ defmodule Agency.Sale.Deposit do
     end
 
     update :settle_status do
-      accept([:status, :forfeited_to])
+      accept([:status, :forfeited_to, :forfeited_amount])
     end
   end
 end
