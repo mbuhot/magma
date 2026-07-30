@@ -13,6 +13,11 @@ defmodule Magma.Step.Await do
   A `timeout` is measured once, when the wait first parks, and the waiter row holds it. Every
   later attempt reads that same instant back, so the deadline stands however often the wait is
   revisited, and the run fails or yields `:timeout` at it.
+
+  A `timeout` is a count of milliseconds, or a two-arity function or MFA over the step's
+  arguments and context that answers with one. A resolved window lets a cooling-off period come
+  from the row that started the wait. It is asked only on the attempt that parks, so what it
+  answers later cannot move a deadline already set.
   """
 
   use Reactor.Step
@@ -23,19 +28,19 @@ defmodule Magma.Step.Await do
   @default_block_ms 5_000
 
   @impl true
-  def run(_arguments, context, options) do
+  def run(arguments, context, options) do
     :ok = Run.assert_own_step!(context, "await")
     name = Keyword.fetch!(options, :signal)
     workflow_id = workflow_id(context)
 
     case take(workflow_id, name) do
       {:ok, payload} -> {:ok, payload}
-      :none -> park_and_block(workflow_id, name, options)
+      :none -> park_and_block(workflow_id, name, arguments, context, options)
     end
   end
 
-  defp park_and_block(workflow_id, name, options) do
-    deadline = park(workflow_id, name, options)
+  defp park_and_block(workflow_id, name, arguments, context, options) do
+    deadline = park(workflow_id, name, arguments, context, options)
 
     Magma.Notifier.listen(workflow_id, name)
 
@@ -107,25 +112,34 @@ defmodule Magma.Step.Await do
   # The deadline of a wait already parked is the one it was parked with, so a window measured
   # once is the window every later attempt reads. A fresh one is measured only by the attempt
   # that parks, which is also the only attempt that needs a job scheduled at it.
-  defp park(workflow_id, name, options) do
+  defp park(workflow_id, name, arguments, context, options) do
     case Store.waiter(workflow_id, name) do
       %{deadline: deadline} ->
         deadline
 
       nil ->
-        deadline = deadline(options)
+        deadline = deadline(arguments, context, options)
         {:ok, _waiter} = Store.park(workflow_id, name, :signal, deadline)
         :ok = Magma.Api.schedule_timeout(workflow_id, deadline)
         deadline
     end
   end
 
-  defp deadline(options) do
-    case Keyword.get(options, :timeout) do
+  defp deadline(arguments, context, options) do
+    case resolve(Keyword.get(options, :timeout), arguments, context) do
       nil -> nil
       ms -> DateTime.add(DateTime.utc_now(), ms, :millisecond)
     end
   end
+
+  @doc """
+  A timeout as the caller wrote it, answered as milliseconds.
+  """
+  @spec resolve(nil | pos_integer() | (map(), map() -> pos_integer()) | mfa(), map(), map()) ::
+          nil | pos_integer()
+  def resolve(fun, arguments, context) when is_function(fun, 2), do: fun.(arguments, context)
+  def resolve({m, f, a}, arguments, context), do: apply(m, f, [arguments, context | a])
+  def resolve(ms, _arguments, _context), do: ms
 
   defp workflow_id(%{magma: %Run{workflow_id: id}}), do: id
 end

@@ -83,6 +83,17 @@ defmodule Magma.DispatchTest do
     assert Effects.count(:rail_send) == 0
   end
 
+  test "how long a spine waits for its child comes from the transfer it was started with" do
+    {:ok, spine} = Magma.start(Workflows.TimedSpine, %{transfer_id: "t1", window_ms: 90_000})
+
+    Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => spine.id}})
+
+    %{deadline: deadline} = Magma.Store.waiter(spine.id, "magma.child.:rail")
+
+    assert status(spine) == :waiting
+    assert DateTime.diff(deadline, DateTime.utc_now(), :millisecond) in 80_000..90_000
+  end
+
   test "a rail that fails fails the spine that dispatched it" do
     Effects.fail_after(:rail_send, 99)
     {:ok, spine} = Magma.start(Workflows.Spine, %{transfer_id: "t1", currency: "EUR"})

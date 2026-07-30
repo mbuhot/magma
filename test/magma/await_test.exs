@@ -174,6 +174,84 @@ defmodule Magma.AwaitTest do
     assert signal.consumed_at == nil
   end
 
+  defp window_left(workflow_id, signal) do
+    %{deadline: deadline} = Store.waiter(workflow_id, signal)
+    DateTime.diff(deadline, DateTime.utc_now(), :millisecond)
+  end
+
+  test "a wait takes its window from the row that started it" do
+    {:ok, workflow} = Magma.start(Workflows.Cooling, %{order_id: "ord_1", window_ms: 90_000})
+
+    drain()
+
+    assert reload(workflow).status == :waiting
+    assert window_left(workflow.id, "confirm") in 80_000..90_000
+  end
+
+  test "a wait can have its window worked out by a named function and its policy" do
+    {:ok, workflow} =
+      Magma.start(Workflows.ScaledCooling, %{order_id: "ord_1", window_ms: 30_000})
+
+    drain()
+
+    assert reload(workflow).status == :waiting
+    assert window_left(workflow.id, "confirm") in 80_000..90_000
+  end
+
+  test "a wait given a plain window in milliseconds still keeps it" do
+    {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
+
+    drain()
+
+    assert window_left(workflow.id, "confirm") in 590_000..600_000
+  end
+
+  test "a window that answers differently later cannot move the one already running" do
+    Application.put_env(:magma, :test_window_ms, 600_000)
+    on_exit(fn -> Application.delete_env(:magma, :test_window_ms) end)
+
+    {:ok, workflow} = Magma.start(Workflows.Shifting, %{order_id: "ord_1"})
+    drain()
+
+    %{deadline: parked} = Store.waiter(workflow.id, "confirm")
+
+    Application.put_env(:magma, :test_window_ms, 1)
+    resume(workflow.id)
+
+    assert reload(workflow).status == :waiting
+    assert %{deadline: ^parked} = Store.waiter(workflow.id, "confirm")
+    assert Effects.count(:ship) == 0
+  end
+
+  test "a carried window that lapses unanswered fails the workflow" do
+    {:ok, workflow} = Magma.start(Workflows.Cooling, %{order_id: "ord_1", window_ms: 20})
+    drain()
+
+    Process.sleep(40)
+    resume(workflow.id)
+
+    failed = reload(workflow)
+
+    assert failed.status == :failed
+    assert Exception.message(failed.error) =~ ~s(waiting for "confirm" reached its deadline)
+    assert Effects.count(:ship) == 0
+  end
+
+  test "a carried window that lapses can hand the rest of the run a timeout to read" do
+    {:ok, workflow} = Magma.start(Workflows.LenientCooling, %{order_id: "ord_1", window_ms: 20})
+    drain()
+
+    Process.sleep(40)
+    resume(workflow.id)
+
+    confirmation =
+      workflow.id |> Store.standing() |> Enum.find(&(&1.step_label == ":confirmation"))
+
+    assert reload(workflow).status == :completed
+    assert confirmation.output == :timeout
+    assert Effects.count(:ship) == 1
+  end
+
   test "the step that waited is not run again once its signal is recorded" do
     {:ok, workflow} = Magma.start(Workflows.Approval, %{order_id: "ord_1"})
     drain()

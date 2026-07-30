@@ -10,6 +10,8 @@ defmodule Magma.Dsl.Await do
 
   It is an ordinary node in the graph. It takes arguments, downstream steps read
   `result(:confirmation)`, and `wait_for` orders it against steps it reads nothing from.
+
+  `timeout` may be resolved at run time, so a cooling-off period can come from an argument.
   """
 
   defstruct __identifier__: nil,
@@ -23,6 +25,8 @@ defmodule Magma.Dsl.Await do
             signal: nil,
             timeout: nil
 
+  @type resolver(value) :: value | (map(), map() -> value) | mfa()
+
   @type t :: %__MODULE__{
           arguments: [Reactor.Dsl.Argument.t()],
           block_ms: nil | non_neg_integer(),
@@ -31,7 +35,7 @@ defmodule Magma.Dsl.Await do
           name: atom(),
           on_timeout: :error | :return,
           signal: String.t(),
-          timeout: nil | pos_integer()
+          timeout: nil | resolver(pos_integer())
         }
 
   @doc false
@@ -62,7 +66,11 @@ defmodule Magma.Dsl.Await do
           required: true,
           doc: "The name `Magma.signal/3` delivers under."
         ],
-        timeout: [type: :pos_integer, doc: "How long the wait may last, in milliseconds."],
+        timeout: [
+          type: {:or, [:pos_integer, {:fun, 2}, :mfa]},
+          doc:
+            "How long the wait may last in milliseconds, or something that answers with one at run time."
+        ],
         block_ms: [
           type: :non_neg_integer,
           doc:

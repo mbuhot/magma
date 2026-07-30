@@ -16,7 +16,8 @@ defmodule Magma.Step.Dispatch do
       end
 
   `workflow` is a module, or a two-arity function over the step's arguments and context that
-  returns one. `inputs` is the same, defaulting to the step's arguments.
+  returns one. `inputs` is the same, defaulting to the step's arguments. `timeout` is the same,
+  answering milliseconds.
   """
 
   use Reactor.Step
@@ -34,7 +35,9 @@ defmodule Magma.Step.Dispatch do
 
     :ok = ensure_started(child_id, parent_id, signal, arguments, context, options)
 
-    await(parent_id, signal, options)
+    timeout = Magma.Step.Await.resolve(Keyword.get(options, :timeout), arguments, context)
+
+    await(parent_id, signal, timeout, options)
   end
 
   # Starting is idempotent on the derived id, so a replay that gets this far finds the child
@@ -62,13 +65,13 @@ defmodule Magma.Step.Dispatch do
     :ok
   end
 
-  defp await(parent_id, signal, options) do
+  defp await(parent_id, signal, timeout, options) do
     case Magma.Step.Await.run(
            %{},
            %{magma: %Run{workflow_id: parent_id, checkpoints: %{}}, current_step: nil},
            signal: signal,
            block_ms: Keyword.get(options, :block_ms),
-           timeout: Keyword.get(options, :timeout),
+           timeout: timeout,
            on_timeout: :error
          ) do
       {:ok, {:ok, result}} -> {:ok, result}

@@ -98,6 +98,10 @@ away, blocks briefly for one that may be seconds off, then halts. The workflow b
 holding no process and no job. `Magma.signal/3` writes the signal and the resume job in one
 transaction, so a wakeup survives a crash on the sending side.
 
+A `timeout` may be worked out at run time — `timeout &MyApp.Policy.cooling_off/2` takes its
+window from the step's own arguments — and the deadline it settles on is measured once, when
+the wait first parks.
+
 `poll` covers the other case — nothing will push you, so the job snoozes and comes
 back on its own.
 

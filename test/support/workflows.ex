@@ -212,6 +212,134 @@ defmodule Magma.Test.Workflows do
     return(:ship)
   end
 
+  defmodule Cooling do
+    @moduledoc "A wait whose window is carried by the row that started it."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+    input(:window_ms)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    await :confirmation do
+      signal("confirm")
+      block_ms(0)
+      timeout(&Magma.Test.Workflows.given_window/2)
+      argument(:window_ms, input(:window_ms))
+    end
+
+    step :ship, {Effect, name: :ship} do
+      argument(:confirmation, result(:confirmation))
+    end
+
+    return(:ship)
+  end
+
+  defmodule LenientCooling do
+    @moduledoc "A carried window that yields `:timeout` for the rest of the run to read."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+    input(:window_ms)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    await :confirmation do
+      signal("confirm")
+      block_ms(0)
+      on_timeout(:return)
+      timeout(&Magma.Test.Workflows.given_window/2)
+      argument(:window_ms, input(:window_ms))
+    end
+
+    step :ship, {Effect, name: :ship} do
+      argument(:confirmation, result(:confirmation))
+    end
+
+    return(:ship)
+  end
+
+  defmodule ScaledCooling do
+    @moduledoc "A carried window stretched by a jurisdiction's multiplier."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+    input(:window_ms)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    await :confirmation do
+      signal("confirm")
+      block_ms(0)
+      timeout({Magma.Test.Workflows, :scaled_window, [3]})
+      argument(:window_ms, input(:window_ms))
+    end
+
+    step :ship, {Effect, name: :ship} do
+      argument(:confirmation, result(:confirmation))
+    end
+
+    return(:ship)
+  end
+
+  defmodule Shifting do
+    @moduledoc "A wait whose window is read afresh from policy every time one is asked for."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_id)
+
+    step :quote, {Effect, name: :quote} do
+      argument(:order_id, input(:order_id))
+    end
+
+    await :confirmation do
+      signal("confirm")
+      block_ms(0)
+      timeout(&Magma.Test.Workflows.policy_window/2)
+    end
+
+    step :ship, {Effect, name: :ship} do
+      argument(:confirmation, result(:confirmation))
+    end
+
+    return(:ship)
+  end
+
+  @doc false
+  def given_window(%{window_ms: window_ms}, _context), do: window_ms
+
+  @doc false
+  def scaled_window(%{window_ms: window_ms}, _context, multiplier), do: window_ms * multiplier
+
+  @doc false
+  def policy_window(_arguments, _context) do
+    Application.get_env(:magma, :test_window_ms, 600_000)
+  end
+
+  defmodule TimedSpine do
+    @moduledoc "A dispatch whose patience for its child is carried by the transfer."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:transfer_id)
+    input(:window_ms)
+
+    dispatch :rail do
+      workflow(Magma.Test.Workflows.Rail)
+      block_ms(0)
+      timeout(&Magma.Test.Workflows.given_window/2)
+      argument(:transfer_id, input(:transfer_id))
+      argument(:window_ms, input(:window_ms))
+    end
+
+    return(:rail)
+  end
+
   defmodule Polling do
     @moduledoc false
     use Reactor, extensions: [Magma.Dsl]

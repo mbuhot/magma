@@ -9,8 +9,8 @@ defmodule Magma.Dsl.Dispatch do
       end
 
   The child gets its own row, its own job and its own queue, and this step holds the result it
-  returned. `workflow` and `inputs` may each be resolved at run time, so the module a payout
-  reaches for can come from config or from an argument.
+  returned. `workflow`, `inputs` and `timeout` may each be resolved at run time, so the module a
+  payout reaches for can come from config or from an argument.
   """
 
   defstruct __identifier__: nil,
@@ -35,7 +35,7 @@ defmodule Magma.Dsl.Dispatch do
           inputs: nil | resolver(map()),
           name: atom(),
           queue: atom(),
-          timeout: nil | pos_integer(),
+          timeout: nil | resolver(pos_integer()),
           workflow: resolver(module())
         }
 
@@ -74,7 +74,11 @@ defmodule Magma.Dsl.Dispatch do
           doc: "What the child is started with. Defaults to this step's arguments."
         ],
         queue: [type: :atom, default: :default, doc: "The Oban queue the child runs on."],
-        timeout: [type: :pos_integer, doc: "How long to wait for the child, in milliseconds."],
+        timeout: [
+          type: {:or, [:pos_integer, {:fun, 2}, :mfa]},
+          doc:
+            "How long to wait for the child in milliseconds, or something that answers with one at run time."
+        ],
         block_ms: [
           type: :non_neg_integer,
           doc:
