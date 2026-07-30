@@ -27,6 +27,11 @@ defmodule Agency.Sale.Contract do
   actions do
     defaults([:read])
 
+    read :for_attempt do
+      argument(:sale_attempt_id, :uuid_v7, allow_nil?: false)
+      filter(expr(sale_attempt_id == ^arg(:sale_attempt_id)))
+    end
+
     create :exchange do
       accept([:sale_attempt_id, :buyer_id, :price, :exchanged_at, :settlement_date])
     end

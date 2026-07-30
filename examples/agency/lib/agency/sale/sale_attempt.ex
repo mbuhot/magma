@@ -40,6 +40,12 @@ defmodule Agency.Sale.SaleAttempt do
       filter(expr(id == ^arg(:id)))
     end
 
+    read :for_agreement do
+      argument(:agency_agreement_id, :uuid_v7, allow_nil?: false)
+      filter(expr(agency_agreement_id == ^arg(:agency_agreement_id)))
+      prepare(build(sort: [generation: :asc]))
+    end
+
     create :open do
       accept([:agency_agreement_id, :predecessor_id, :generation, :sale_method, :opened_at])
     end

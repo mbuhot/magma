@@ -9,6 +9,8 @@ defmodule AgencyWeb.ListingLive.Workflows do
 
   alias Agency.Magma.Waiter
   alias Agency.Magma.Workflow
+  alias Agency.Sale.Attempt
+  alias Agency.Sale.Campaign
   alias Agency.Sale.Engagement
 
   @doc "The engagement workflow running the given agency agreement, if one has been started."
@@ -31,22 +33,47 @@ defmodule AgencyWeb.ListingLive.Workflows do
   def compliance_gate_id(engagement_id), do: Magma.child_id(engagement_id, :compliance_gate)
 
   @doc """
-  Every sale attempt's workflow id, keyed by the attempt row's own id.
+  The campaign presently waiting to be taken to market, if one is.
 
-  Each generation's workflow id is derived from its predecessor's, so the whole chain is
-  walked from the first attempt forward rather than guessed at.
+  A listing is marketed afresh as often as the agent relaunches it, and each of those campaigns
+  is its own workflow, so which one holds the vendor's decision is found by what is parked.
   """
-  @spec attempt_workflow_ids(String.t(), [Ash.Resource.record()]) :: %{String.t() => String.t()}
-  def attempt_workflow_ids(engagement_id, attempts_by_generation) do
-    {pairs, _next} =
-      attempts_by_generation
-      |> Enum.sort_by(& &1.generation)
-      |> Enum.map_reduce(Magma.child_id(engagement_id, :sale_attempt), fn attempt, id ->
-        {{attempt.id, id}, Magma.child_id(id, :next_attempt)}
-      end)
+  @spec campaign_id(String.t()) :: String.t() | nil
+  def campaign_id(agency_agreement_id) do
+    campaigns =
+      Workflow
+      |> Ash.read!()
+      |> Enum.filter(&campaigning?(&1, agency_agreement_id))
+      |> MapSet.new(& &1.id)
 
-    Map.new(pairs)
+    Waiter
+    |> Ash.read!()
+    |> Enum.find(&(&1.name == "campaign.outcome" and MapSet.member?(campaigns, &1.workflow_id)))
+    |> case do
+      nil -> nil
+      waiter -> waiter.workflow_id
+    end
   end
+
+  defp campaigning?(%{module: Campaign, inputs: %{agency_agreement_id: id}}, id), do: true
+  defp campaigning?(_workflow, _agency_agreement_id), do: false
+
+  @doc "Every sale attempt's workflow id, keyed by the attempt row's own id."
+  @spec attempt_workflow_ids([Ash.Resource.record()]) :: %{String.t() => String.t()}
+  def attempt_workflow_ids(attempts) do
+    attempt_ids = MapSet.new(attempts, & &1.id)
+
+    Workflow
+    |> Ash.read!()
+    |> Enum.flat_map(&attempt_pair(&1, attempt_ids))
+    |> Map.new()
+  end
+
+  defp attempt_pair(%{module: Attempt, id: workflow_id, inputs: %{sale_attempt_id: id}}, ids) do
+    if MapSet.member?(ids, id), do: [{id, workflow_id}], else: []
+  end
+
+  defp attempt_pair(_workflow, _attempt_ids), do: []
 
   @doc "The child workflow that runs an attempt's sale method."
   @spec method_workflow_id(String.t(), atom()) :: String.t()

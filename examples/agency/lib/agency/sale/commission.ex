@@ -34,6 +34,11 @@ defmodule Agency.Sale.Commission do
   actions do
     defaults([:read])
 
+    read :for_attempt do
+      argument(:sale_attempt_id, :uuid_v7, allow_nil?: false)
+      filter(expr(sale_attempt_id == ^arg(:sale_attempt_id)))
+    end
+
     create :accrue do
       accept([:sale_attempt_id, :amount, :accrued_at, :payable_on])
     end

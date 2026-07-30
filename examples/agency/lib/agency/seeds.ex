@@ -6,7 +6,8 @@ defmodule Agency.Seeds do
   Every listing is reached the same way any real listing is: sign the agreement, start the
   engagement, hand over the jurisdiction's documents, launch the campaign, then drive the sale
   attempt as far as its story calls for. Nothing here writes a row that imitates a state a
-  workflow never reached.
+  workflow never reached. The Manly listing ends where a contract falling over leaves an agent:
+  waiting on which underbidder to call back.
   """
 
   alias Agency.Sale
@@ -121,7 +122,7 @@ defmodule Agency.Seeds do
     make_offer(attempt_id, whitlam, 905_000_00)
     run_agency()
 
-    sale_attempt = Magma.child_id(workflow.id, :sale_attempt)
+    sale_attempt = Magma.child_id(campaign_of(workflow.id), :sale_attempt)
     treaty_negotiation = Magma.child_id(Magma.child_id(sale_attempt, :treaty), :negotiation)
 
     {:ok, _signal} =
@@ -151,7 +152,7 @@ defmodule Agency.Seeds do
     hand_over_documents(workflow.id, :nsw)
     proceed(workflow.id)
 
-    first_generation = Magma.child_id(workflow.id, :sale_attempt)
+    first_generation = Magma.child_id(campaign_of(workflow.id), :sale_attempt)
     attempt_id = first_attempt_id(workflow.id)
 
     rasmussen_offer = make_offer(attempt_id, rasmussen, 2_480_000_00)
@@ -229,6 +230,8 @@ defmodule Agency.Seeds do
     workflow
   end
 
+  defp campaign_of(workflow_id), do: Magma.child_id(workflow_id, :campaign)
+
   defp hand_over_documents(workflow_id, jurisdiction) do
     gate = Magma.child_id(workflow_id, :compliance_gate)
 
@@ -258,16 +261,20 @@ defmodule Agency.Seeds do
   end
 
   defp proceed(workflow_id) do
-    {:ok, _signal} = Magma.signal(workflow_id, "campaign.outcome", %{decision: :proceed})
+    {:ok, _signal} =
+      Magma.signal(campaign_of(workflow_id), "campaign.outcome", %{decision: :proceed})
+
     run_agency()
   end
 
   defp first_attempt_id(workflow_id) do
-    Testing.recorded(workflow_id, :first_attempt).sale_attempt_id
+    Testing.recorded(campaign_of(workflow_id), :attempt).sale_attempt_id
   end
 
   defp open_first_attempt(workflow_id) do
-    {:ok, _signal} = Magma.signal(workflow_id, "campaign.outcome", %{decision: :proceed})
+    {:ok, _signal} =
+      Magma.signal(campaign_of(workflow_id), "campaign.outcome", %{decision: :proceed})
+
     Testing.run_workflows(queue: :sales, with_recursion: false)
     first_attempt_id(workflow_id)
   end

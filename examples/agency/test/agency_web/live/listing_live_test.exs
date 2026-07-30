@@ -45,10 +45,12 @@ defmodule AgencyWeb.ListingLiveTest do
       run_agency()
     end)
 
-    {:ok, _signal} = Magma.signal(workflow.id, "campaign.outcome", %{decision: :proceed})
+    campaign = Magma.child_id(workflow.id, :campaign)
+
+    {:ok, _signal} = Magma.signal(campaign, "campaign.outcome", %{decision: :proceed})
     run_agency()
 
-    attempt_id = Magma.Testing.recorded(workflow.id, :first_attempt).sale_attempt_id
+    attempt_id = Magma.Testing.recorded(campaign, :attempt).sale_attempt_id
 
     Sale.make_offer!(%{
       sale_attempt_id: attempt_id,
@@ -87,6 +89,39 @@ defmodule AgencyWeb.ListingLiveTest do
     {:ok, _view, marine_html} = live(conn, ~p"/listings/#{listing_named("51 Marine Parade").id}")
     assert marine_html =~ "fell through"
     assert marine_html =~ "Rasmussen"
+    assert marine_html =~ "Re-approach the underbidders"
+  end
+
+  test "calling back a named underbidder puts that buyer back in negotiation", %{conn: conn} do
+    seed()
+    marine = listing_named("51 Marine Parade")
+
+    {:ok, view, html} = live(conn, ~p"/listings/#{marine.id}")
+
+    assert html =~ "Re-approach Pettifer at $2,445,000"
+    assert html =~ "Re-approach Choudhury at $2,412,000"
+    assert html =~ "Cash purchase"
+    assert html =~ "Finance through Meridian Bank"
+
+    html =
+      view
+      |> element("button[phx-click='re_approach']", "Choudhury")
+      |> render_click()
+
+    assert html =~ "Negotiating"
+    refute html =~ "Re-approach the underbidders"
+  end
+
+  test "relaunching the campaign puts the listing back on the market", %{conn: conn} do
+    seed()
+    marine = listing_named("51 Marine Parade")
+
+    {:ok, view, _html} = live(conn, ~p"/listings/#{marine.id}")
+
+    html = view |> element("button[phx-click='relaunch_campaign']") |> render_click()
+
+    assert html =~ "Ready to go to market"
+    assert html =~ "Launch the campaign"
   end
 
   test "clicking a listing in the picker shows that listing instead", %{conn: conn} do

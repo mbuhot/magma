@@ -46,6 +46,12 @@ defmodule Agency.Sale.Window do
   @spec agency_term() :: pos_integer()
   def agency_term, do: @agency_term
 
+  @doc "How much of an agency agreement whose term ends on the given date is left to run."
+  @spec remaining_term(Date.t()) :: pos_integer()
+  def remaining_term(term_end) do
+    term_end |> DateTime.new!(~T[23:59:59], "Etc/UTC") |> ms_until()
+  end
+
   @doc "How long a contract's conditions have to resolve."
   @spec condition_period() :: pos_integer()
   def condition_period, do: @condition_period

@@ -3,8 +3,9 @@ defmodule Agency.Sale.Attempt do
   One generation of the attempt to sell: method, exchange, cooling off, conditions, settlement.
 
   The method chosen decides which child runs the sale, and everything after exchange is common
-  to all three. A contract that dies at any point closes the generation and hands the register
-  to a successor, so the chain runs until the property sells or nobody is left to approach.
+  to all three. A contract that dies at any point closes the generation, and the agent then says
+  which buyer to go back to or that the property should be marketed afresh, so the chain runs
+  until the property sells, the register empties or the agent stops answering.
   """
 
   use Reactor, extensions: [Magma.Dsl]
@@ -253,19 +254,45 @@ defmodule Agency.Sale.Attempt do
       end
     end
 
-    matches? &(&1 == :next_generation) do
-      step :open_successor, Steps.OpenSuccessor do
-        argument(:setting, result(:setting))
+    matches? &(&1 == :decide) do
+      await :decision do
+        signal("succession.decision")
+        argument(:term_end, result(:setting, [:term_end]))
+        timeout(&Steps.succession_window/2)
+        on_timeout(:return)
       end
 
-      dispatch :next_attempt do
-        workflow(Agency.Sale.Attempt)
-        queue(:sales)
-        argument(:sale_attempt_id, result(:open_successor, [:sale_attempt_id]))
+      switch :decided do
+        on(result(:decision))
+
+        matches? &(&1 == :timeout) do
+          step(:decided, Steps.Undecided)
+        end
+
+        matches? &match?(%{decision: :relaunch}, &1) do
+          step(:decided, Steps.Relaunching)
+        end
+
+        default do
+          step :open_successor, Steps.OpenSuccessor do
+            argument(:setting, result(:setting))
+            argument(:decision, result(:decision))
+          end
+
+          dispatch :next_attempt do
+            workflow(Agency.Sale.Attempt)
+            queue(:sales)
+            argument(:sale_attempt_id, result(:open_successor, [:sale_attempt_id]))
+          end
+
+          step :decided, Steps.Reported do
+            argument(:result, result(:next_attempt))
+          end
+        end
       end
 
       step :chain, Steps.Reported do
-        argument(:result, result(:next_attempt))
+        argument(:result, result(:decided))
       end
     end
 

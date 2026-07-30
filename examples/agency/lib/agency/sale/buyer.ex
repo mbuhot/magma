@@ -30,6 +30,12 @@ defmodule Agency.Sale.Buyer do
   actions do
     defaults([:read])
 
+    read :by_id do
+      get?(true)
+      argument(:id, :uuid_v7, allow_nil?: false)
+      filter(expr(id == ^arg(:id)))
+    end
+
     read :available_for_agreement do
       argument(:agency_agreement_id, :uuid_v7, allow_nil?: false)
 

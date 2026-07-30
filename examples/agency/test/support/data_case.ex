@@ -39,7 +39,7 @@ defmodule Agency.DataCase do
       agent_name: "Sam Okafor",
       appointment: :exclusive,
       term_start: ~D[2026-08-01],
-      term_end: ~D[2026-11-01],
+      term_end: Map.get(overrides, :term_end, ~D[2026-11-01]),
       commission_rate: Decimal.new("2.2"),
       commission_trigger: Map.get(overrides, :commission_trigger, :on_settlement),
       sale_method: Map.get(overrides, :sale_method, :treaty),
@@ -86,9 +86,45 @@ defmodule Agency.DataCase do
 
   @doc "The generation of the listing's campaign the agent is up to."
   def the_attempt(agreement, generation) do
-    Sale.list_attempts!()
-    |> Enum.filter(&(&1.agency_agreement_id == agreement.id and &1.generation == generation))
-    |> List.first()
+    agreement.id
+    |> Sale.attempts_for_agreement!()
+    |> Enum.find(&(&1.generation == generation))
+  end
+
+  @doc "The contract the given generation exchanged."
+  def the_contract(attempt), do: attempt.id |> Sale.contracts_for_attempt!() |> List.first()
+
+  @doc "The deposit held against the contract the given generation exchanged."
+  def the_deposit(attempt) do
+    attempt |> the_contract() |> Map.fetch!(:id) |> Sale.deposits_for_contract!() |> List.first()
+  end
+
+  @doc "The commission the given generation earned."
+  def the_commission(attempt), do: attempt.id |> Sale.commissions_for_attempt!() |> List.first()
+
+  @doc "The offers the given generation is holding, dearest first."
+  def the_offers(attempt), do: Sale.offers_for_attempt!(attempt.id)
+
+  @doc "The buyers the given generation has a live offer from."
+  def the_live_buyer_ids(attempt) do
+    attempt.id |> Sale.live_offers_for_attempt!() |> Enum.map(& &1.buyer_id)
+  end
+
+  @doc "Where the given buyer stands on the listing's register."
+  def the_register_status(buyer), do: Sale.get_buyer!(buyer.id).register_status
+
+  @doc "The conditions imposed on the contract the given generation exchanged."
+  def the_conditions(attempt) do
+    attempt |> the_contract() |> Map.fetch!(:id) |> Sale.conditions_for_contract!()
+  end
+
+  @doc "Whether the workflow is presently held up on the given wait."
+  def waiting?(%{id: workflow_id}, name), do: waiting?(workflow_id, name)
+
+  def waiting?(workflow_id, name) when is_binary(workflow_id) do
+    Agency.Magma.Waiter
+    |> Ash.read!()
+    |> Enum.any?(&(&1.workflow_id == workflow_id and &1.name == name))
   end
 
   @doc "Runs everything the agency has ready, whichever desk it sits on."

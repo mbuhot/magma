@@ -26,9 +26,9 @@ defmodule Agency.Sale.AttemptTest do
 
   defp let_cooling_off_lapse, do: run_agency_after(@vic_cooling_off)
 
-  defp answer_the_conditions(workflow, finance_decision) do
+  defp answer_the_conditions(workflow, attempt, finance_decision) do
     conditions = Magma.child_id(workflow.id, :conditions)
-    contract_id = the_contract().id
+    contract_id = the_contract(attempt).id
 
     {:ok, _inspection} =
       Magma.signal(conditions, "condition.inspection", %{decision: :satisfied})
@@ -40,8 +40,8 @@ defmodule Agency.Sale.AttemptTest do
     conditions
   end
 
-  defp report_settlement(workflow, outcome) do
-    contract_id = the_contract().id
+  defp report_settlement(workflow, attempt, outcome) do
+    contract_id = the_contract(attempt).id
     Pexa.move!(contract_id, settlement_status(outcome))
     nudge(workflow.id)
   end
@@ -49,9 +49,15 @@ defmodule Agency.Sale.AttemptTest do
   defp settlement_status(:settled), do: :settled
   defp settlement_status(:buyer_default), do: :defaulted
 
-  defp the_commission, do: Sale.list_commissions!() |> List.first()
-  defp the_deposit, do: Sale.list_deposits!() |> List.first()
-  defp the_contract, do: Sale.list_contracts!() |> List.first()
+  defp go_back_to(workflow, buyer) do
+    {:ok, _signal} =
+      Magma.signal(workflow.id, "succession.decision", %{
+        decision: :re_approach,
+        buyer_id: buyer.id
+      })
+
+    run_agency()
+  end
 
   defp reload(attempt), do: Sale.get_attempt!(attempt.id)
 
@@ -81,11 +87,11 @@ defmodule Agency.Sale.AttemptTest do
       assert recorded(workflow, :rescission) == :none
       assert status(Magma.child_id(workflow.id, :conditions)) == :polling
 
-      assert the_contract().price == 950_000_00
-      assert the_deposit().amount == 95_000_00
-      assert the_commission().amount == 20_900_00
+      assert the_contract(attempt).price == 950_000_00
+      assert the_deposit(attempt).amount == 95_000_00
+      assert the_commission(attempt).amount == 20_900_00
 
-      assert Sale.list_conditions!() |> Enum.map(& &1.kind) |> Enum.sort() == [
+      assert attempt |> the_conditions() |> Enum.map(& &1.kind) |> Enum.sort() == [
                :finance,
                :inspection,
                :title
@@ -120,7 +126,7 @@ defmodule Agency.Sale.AttemptTest do
       run_agency()
 
       assert recorded(workflow, :sale).governing_window == :vic
-      assert the_contract().price == top_bid.amount
+      assert the_contract(attempt).price == top_bid.amount
 
       let_cooling_off_lapse()
 
@@ -138,14 +144,14 @@ defmodule Agency.Sale.AttemptTest do
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
       let_cooling_off_lapse()
-      answer_the_conditions(workflow, :approved)
+      answer_the_conditions(workflow, attempt, :approved)
 
-      awaiting_settlement = the_commission()
+      awaiting_settlement = the_commission(attempt)
 
       assert awaiting_settlement.outcome == :disbursed
       assert awaiting_settlement.paid_from == "Sam Okafor Trust"
 
-      report_settlement(workflow, :settled)
+      report_settlement(workflow, attempt, :settled)
 
       settled_at = recorded(workflow, :settle).settled_at
 
@@ -163,25 +169,25 @@ defmodule Agency.Sale.AttemptTest do
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
       let_cooling_off_lapse()
-      answer_the_conditions(workflow, :approved)
+      answer_the_conditions(workflow, attempt, :approved)
 
-      assert the_commission().outcome == :accrued
+      assert the_commission(attempt).outcome == :accrued
 
-      report_settlement(workflow, :settled)
+      report_settlement(workflow, attempt, :settled)
 
-      settled = the_commission()
+      settled = the_commission(attempt)
       settled_at = recorded(workflow, :settle).settled_at
 
       assert settled.outcome == :disbursed
       assert settled.disbursed_at == settled_at
-      assert the_deposit().status == :released
+      assert the_deposit(attempt).status == :released
       assert reload(attempt).outcome == :settled
-      assert result(workflow) == %{outcome: :settled, contract_id: the_contract().id}
+      assert result(workflow) == %{outcome: :settled, contract_id: the_contract(attempt).id}
     end
   end
 
   describe "a buyer who rescinds during cooling off" do
-    test "forfeits two tenths of a percent to the vendor and the underbidder is approached again" do
+    test "forfeits two tenths of a percent to the vendor and leaves the agent to say who to call" do
       agreement = a_signed_listing(%{sale_method: :treaty})
       attempt = the_first_attempt(agreement, :treaty)
       underbidder = a_buyer(agreement, "Alex Moreau")
@@ -203,29 +209,98 @@ defmodule Agency.Sale.AttemptTest do
                forfeited_to: "Priya Nair"
              }
 
-      assert the_deposit().status == :forfeited
-      assert the_deposit().forfeited_to == "Priya Nair"
-      assert the_deposit().forfeited_amount == 1_800_00
-      assert the_commission().outcome == :written_back
+      assert the_deposit(attempt).status == :forfeited
+      assert the_deposit(attempt).forfeited_to == "Priya Nair"
+      assert the_deposit(attempt).forfeited_amount == 1_800_00
+      assert the_commission(attempt).outcome == :written_back
       assert reload(attempt).outcome == :rescinded
+      assert the_register_status(rescinding_buyer) == :rescinded
+
+      assert the_attempt(agreement, 2) == nil
+      assert status(workflow) == :waiting
+      assert waiting?(workflow, "succession.decision")
+    end
+  end
+
+  describe "an agent who calls back a buyer who was not the highest" do
+    test "opens the next generation against that buyer alone" do
+      agreement = a_signed_listing(%{sale_method: :treaty})
+      attempt = the_first_attempt(agreement, :treaty)
+      cash_buyer = a_buyer(agreement, "Alex Moreau")
+      an_offer(attempt, cash_buyer, 840_000_00)
+      highest_underbidder = a_buyer(agreement, "Rae Tremayne")
+      an_offer(attempt, highest_underbidder, 870_000_00)
+      rescinding_buyer = a_buyer(agreement, "Jordan Lee")
+      an_offer(attempt, rescinding_buyer, 900_000_00)
+
+      workflow = start_attempt(attempt)
+      accept_by_treaty(workflow)
+
+      {:ok, _signal} =
+        Magma.signal(workflow.id, "cooling_off.rescission", %{buyer_id: rescinding_buyer.id})
+
+      run_agency()
+      go_back_to(workflow, cash_buyer)
 
       successor = the_attempt(agreement, 2)
 
       assert successor.predecessor_id == attempt.id
       assert successor.sale_method == :treaty
-
-      assert successor.id
-             |> Sale.live_offers_for_attempt!()
-             |> Enum.map(& &1.buyer_id) == [underbidder.id]
-
-      assert Sale.list_buyers!()
-             |> Enum.find(&(&1.id == rescinding_buyer.id))
-             |> Map.fetch!(:register_status) == :rescinded
+      assert the_live_buyer_ids(successor) == [cash_buyer.id]
+      assert the_register_status(highest_underbidder) == :available
 
       second_generation = Magma.child_id(workflow.id, :next_attempt)
 
       assert second_generation != workflow.id
       assert status(second_generation) == :waiting
+    end
+  end
+
+  describe "an agent who relaunches rather than calling anyone back" do
+    test "answers upwards that the property should go to market again" do
+      agreement = a_signed_listing(%{sale_method: :treaty})
+      attempt = the_first_attempt(agreement, :treaty)
+      an_offer(attempt, a_buyer(agreement, "Alex Moreau"), 860_000_00)
+      rescinding_buyer = a_buyer(agreement, "Jordan Lee")
+      an_offer(attempt, rescinding_buyer, 900_000_00)
+
+      workflow = start_attempt(attempt)
+      accept_by_treaty(workflow)
+
+      {:ok, _signal} =
+        Magma.signal(workflow.id, "cooling_off.rescission", %{buyer_id: rescinding_buyer.id})
+
+      run_agency()
+
+      {:ok, _signal} = Magma.signal(workflow.id, "succession.decision", %{decision: :relaunch})
+      run_agency()
+
+      assert status(workflow) == :completed
+      assert result(workflow) == %{outcome: :relaunch}
+      assert the_attempt(agreement, 2) == nil
+    end
+  end
+
+  describe "an agent who never says who to call back" do
+    test "leaves the listing unsold once the agency term has run out" do
+      agreement = a_signed_listing(%{sale_method: :treaty, term_end: ~D[2026-07-01]})
+      attempt = the_first_attempt(agreement, :treaty)
+      an_offer(attempt, a_buyer(agreement, "Alex Moreau"), 860_000_00)
+      rescinding_buyer = a_buyer(agreement, "Jordan Lee")
+      an_offer(attempt, rescinding_buyer, 900_000_00)
+
+      workflow = start_attempt(attempt)
+      accept_by_treaty(workflow)
+
+      {:ok, _signal} =
+        Magma.signal(workflow.id, "cooling_off.rescission", %{buyer_id: rescinding_buyer.id})
+
+      run_agency()
+      run_agency_after(50)
+
+      assert status(workflow) == :completed
+      assert result(workflow) == %{outcome: :no_sale, reason: :undecided}
+      assert the_attempt(agreement, 2) == nil
     end
   end
 
@@ -240,7 +315,7 @@ defmodule Agency.Sale.AttemptTest do
       let_cooling_off_lapse()
 
       conditions = Magma.child_id(workflow.id, :conditions)
-      contract_id = the_contract().id
+      contract_id = the_contract(attempt).id
 
       {:ok, _inspection} =
         Magma.signal(conditions, "condition.inspection", %{decision: :satisfied})
@@ -248,12 +323,12 @@ defmodule Agency.Sale.AttemptTest do
       Titles.move!(contract_id, :clear)
       nudge(conditions)
 
-      assert the_contract().unconditional_at == nil
+      assert the_contract(attempt).unconditional_at == nil
 
       Lender.move!(contract_id, :approved)
       nudge(conditions)
 
-      assert the_contract().unconditional_at != nil
+      assert the_contract(attempt).unconditional_at != nil
     end
   end
 
@@ -269,24 +344,24 @@ defmodule Agency.Sale.AttemptTest do
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
       let_cooling_off_lapse()
-      answer_the_conditions(workflow, :declined)
+      answer_the_conditions(workflow, attempt, :declined)
 
-      assert the_deposit().status == :refunded
-      assert the_deposit().amount == 90_000_00
-      assert the_commission().outcome == :written_back
+      assert the_deposit(attempt).status == :refunded
+      assert the_deposit(attempt).amount == 90_000_00
+      assert the_commission(attempt).outcome == :written_back
       assert reload(attempt).outcome == :condition_failed
 
-      assert Sale.list_conditions!()
+      assert attempt
+             |> the_conditions()
              |> Enum.find(&(&1.kind == :finance))
              |> Map.fetch!(:status) == :failed
+
+      go_back_to(workflow, underbidder)
 
       successor = the_attempt(agreement, 2)
 
       assert successor.generation == 2
-
-      assert successor.id
-             |> Sale.live_offers_for_attempt!()
-             |> Enum.map(& &1.buyer_id) == [underbidder.id]
+      assert the_live_buyer_ids(successor) == [underbidder.id]
     end
   end
 
@@ -300,18 +375,18 @@ defmodule Agency.Sale.AttemptTest do
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
       let_cooling_off_lapse()
-      answer_the_conditions(workflow, :approved)
-      report_settlement(workflow, :buyer_default)
+      answer_the_conditions(workflow, attempt, :approved)
+      report_settlement(workflow, attempt, :buyer_default)
 
-      commission = the_commission()
+      commission = the_commission(attempt)
 
       assert commission.outcome == :disbursed
       assert commission.paid_from == "forfeited deposit"
       assert commission.amount == 19_800_00
 
-      assert the_deposit().status == :forfeited
-      assert the_deposit().forfeited_to == "Priya Nair"
-      assert the_deposit().forfeited_amount == 90_000_00
+      assert the_deposit(attempt).status == :forfeited
+      assert the_deposit(attempt).forfeited_to == "Priya Nair"
+      assert the_deposit(attempt).forfeited_amount == 90_000_00
 
       assert recorded(workflow, :buyer_default) == %{
                forfeited: 90_000_00,
@@ -319,10 +394,7 @@ defmodule Agency.Sale.AttemptTest do
              }
 
       assert reload(attempt).outcome == :buyer_default
-
-      assert Sale.list_buyers!()
-             |> Enum.find(&(&1.id == defaulting_buyer.id))
-             |> Map.fetch!(:register_status) == :defaulted
+      assert the_register_status(defaulting_buyer) == :defaulted
     end
   end
 
@@ -342,6 +414,7 @@ defmodule Agency.Sale.AttemptTest do
         Magma.signal(workflow.id, "cooling_off.rescission", %{buyer_id: rescinding_buyer.id})
 
       run_agency()
+      go_back_to(workflow, underbidder)
 
       second_generation = Magma.child_id(workflow.id, :next_attempt)
       negotiation = Magma.child_id(Magma.child_id(second_generation, :treaty), :negotiation)
@@ -365,21 +438,21 @@ defmodule Agency.Sale.AttemptTest do
       workflow = start_attempt(attempt)
       accept_by_treaty(workflow)
       let_cooling_off_lapse()
-      conditions = answer_the_conditions(workflow, :approved)
-      report_settlement(workflow, :settled)
+      conditions = answer_the_conditions(workflow, attempt, :approved)
+      report_settlement(workflow, attempt, :settled)
 
-      disbursed_at = the_commission().disbursed_at
+      disbursed_at = the_commission(attempt).disbursed_at
 
       Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => conditions}})
       Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow.id}})
 
-      assert length(Sale.list_contracts!()) == 1
-      assert length(Sale.list_deposits!()) == 1
-      assert length(Sale.list_commissions!()) == 1
-      assert length(Sale.list_conditions!()) == 3
-      assert length(Sale.list_attempts!()) == 1
-      assert the_commission().disbursed_at == disbursed_at
-      assert the_deposit().status == :released
+      assert length(Sale.contracts_for_attempt!(attempt.id)) == 1
+      assert length(Sale.deposits_for_contract!(the_contract(attempt).id)) == 1
+      assert length(Sale.commissions_for_attempt!(attempt.id)) == 1
+      assert length(the_conditions(attempt)) == 3
+      assert length(Sale.attempts_for_agreement!(agreement.id)) == 1
+      assert the_commission(attempt).disbursed_at == disbursed_at
+      assert the_deposit(attempt).status == :released
     end
   end
 

@@ -32,11 +32,18 @@ defmodule Agency.Sale do
       define(:open_attempt, action: :open)
       define(:close_attempt, action: :close, get_by: [:id])
       define(:get_attempt, action: :by_id, args: [:id])
+
+      define(:attempts_for_agreement,
+        action: :for_agreement,
+        args: [:agency_agreement_id]
+      )
+
       define(:list_attempts, action: :read)
     end
 
     resource Agency.Sale.Buyer do
       define(:register_buyer, action: :register)
+      define(:get_buyer, action: :by_id, args: [:id])
       define(:set_buyer_register_status, action: :set_register_status, get_by: [:id])
 
       define(:available_buyers,
@@ -59,6 +66,7 @@ defmodule Agency.Sale do
     resource Agency.Sale.Contract do
       define(:exchange_contract, action: :exchange)
       define(:go_unconditional, action: :go_unconditional, get_by: [:id])
+      define(:contracts_for_attempt, action: :for_attempt, args: [:sale_attempt_id])
       define(:list_contracts, action: :read)
     end
 
@@ -72,6 +80,7 @@ defmodule Agency.Sale do
     resource Agency.Sale.Deposit do
       define(:collect_deposit, action: :collect)
       define(:settle_deposit_status, action: :settle_status, get_by: [:id])
+      define(:deposits_for_contract, action: :for_contract, args: [:contract_id])
       define(:list_deposits, action: :read)
     end
 
@@ -79,6 +88,7 @@ defmodule Agency.Sale do
       define(:accrue_commission, action: :accrue)
       define(:disburse_commission, action: :disburse, get_by: [:id])
       define(:write_back_commission, action: :write_back, get_by: [:id])
+      define(:commissions_for_attempt, action: :for_attempt, args: [:sale_attempt_id])
       define(:list_commissions, action: :read)
     end
   end

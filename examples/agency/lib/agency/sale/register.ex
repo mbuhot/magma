@@ -6,13 +6,14 @@ defmodule Agency.Sale.Register do
   @doc """
   Each buyer still on the register paired with the offer worth going back to them on.
 
-  A buyer whose offer in the closed attempt lapsed or was withdrawn has nothing to re-approach
-  them with, so they are left out.
+  The register belongs to the agreement rather than to any one generation, so a buyer passed
+  over in an earlier attempt stays reachable. What they would be re-approached on is the last
+  thing they said, and a buyer whose last word was to let an offer lapse or to pull it has
+  nothing to re-approach them with.
   """
-  @spec approachable(String.t(), String.t()) ::
-          [{Ash.Resource.record(), Ash.Resource.record()}]
-  def approachable(agency_agreement_id, sale_attempt_id) do
-    offers = Sale.offers_for_attempt!(sale_attempt_id)
+  @spec approachable(String.t()) :: [{Ash.Resource.record(), Ash.Resource.record()}]
+  def approachable(agency_agreement_id) do
+    offers = offers_across_the_agreement(agency_agreement_id)
 
     agency_agreement_id
     |> Sale.available_buyers!()
@@ -24,9 +25,19 @@ defmodule Agency.Sale.Register do
     end)
   end
 
+  defp offers_across_the_agreement(agency_agreement_id) do
+    agency_agreement_id
+    |> Sale.attempts_for_agreement!()
+    |> Enum.flat_map(&Sale.offers_for_attempt!(&1.id))
+  end
+
   defp standing_offer(offers, buyer) do
     offers
-    |> Enum.filter(&(&1.buyer_id == buyer.id and &1.status not in [:lapsed, :withdrawn]))
-    |> Enum.max_by(& &1.amount, fn -> nil end)
+    |> Enum.filter(&(&1.buyer_id == buyer.id))
+    |> Enum.max_by(& &1.id, fn -> nil end)
+    |> case do
+      %{status: status} when status in [:lapsed, :withdrawn] -> nil
+      latest -> latest
+    end
   end
 end

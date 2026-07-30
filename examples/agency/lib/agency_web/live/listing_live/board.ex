@@ -10,8 +10,10 @@ defmodule AgencyWeb.ListingLive.Board do
   template as anything but a plain-language action.
   """
 
+  alias Agency.Lender
   alias Agency.Sale
   alias Agency.Sale.Jurisdiction
+  alias Agency.Sale.Register
   alias AgencyWeb.ListingLive.Workflows
 
   defstruct [
@@ -28,6 +30,7 @@ defmodule AgencyWeb.ListingLive.Board do
     :deposit,
     :commission,
     :history,
+    :underbidders,
     :feed,
     :workflows
   ]
@@ -73,14 +76,10 @@ defmodule AgencyWeb.ListingLive.Board do
     commission = attempt && commission_for(attempt.id)
     offers = attempt && Sale.offers_for_attempt!(attempt.id)
 
-    engagement_id = Workflows.engagement_id(agency_agreement_id)
-
-    attempt_workflow_ids =
-      engagement_id && Workflows.attempt_workflow_ids(engagement_id, attempts)
-
     workflows = %{
-      engagement_id: engagement_id,
-      attempt_workflow_ids: attempt_workflow_ids || %{},
+      engagement_id: Workflows.engagement_id(agency_agreement_id),
+      campaign_id: Workflows.campaign_id(agency_agreement_id),
+      attempt_workflow_ids: Workflows.attempt_workflow_ids(attempts),
       negotiations: Workflows.negotiations_awaiting_response()
     }
 
@@ -97,10 +96,43 @@ defmodule AgencyWeb.ListingLive.Board do
       conditions: conditions,
       deposit: deposit,
       commission: commission,
-      history: history(attempts, attempt),
+      history: history(attempts),
+      underbidders: underbidders(agency_agreement_id, attempts),
       feed: feed(agreement, attempts, contract, conditions, commission, deposit),
       workflows: workflows
     }
+  end
+
+  defp underbidders(agency_agreement_id, attempts) do
+    contracts = Enum.flat_map(attempts, &Sale.contracts_for_attempt!(&1.id))
+
+    agency_agreement_id
+    |> Register.approachable()
+    |> Enum.map(fn {buyer, offer} ->
+      %{buyer: buyer, amount: offer.amount, finance: finance_position(buyer, offer, contracts)}
+    end)
+    |> Enum.sort_by(& &1.amount, :desc)
+  end
+
+  defp finance_position(buyer, offer, contracts) do
+    case Enum.find(contracts, &(&1.buyer_id == buyer.id)) do
+      nil -> unproven_finance(buyer, offer)
+      contract -> lender_position(contract, buyer, offer)
+    end
+  end
+
+  defp lender_position(contract, buyer, offer) do
+    case Lender.status(contract.id) do
+      :approved -> :approved
+      :declined -> :declined
+      _undecided -> unproven_finance(buyer, offer)
+    end
+  end
+
+  defp unproven_finance(%{lender: lender}, _offer) when lender in [nil, "cash"], do: :cash
+
+  defp unproven_finance(_buyer, offer) do
+    if :finance in offer.requested_conditions, do: :subject_to_finance, else: :cash
   end
 
   defp buyers_for(agency_agreement_id) do
@@ -110,21 +142,19 @@ defmodule AgencyWeb.ListingLive.Board do
   end
 
   defp attempts_for(agency_agreement_id) do
-    Sale.list_attempts!()
-    |> Enum.filter(&(&1.agency_agreement_id == agency_agreement_id))
-    |> Enum.sort_by(& &1.generation)
+    Sale.attempts_for_agreement!(agency_agreement_id)
   end
 
   defp contract_for(sale_attempt_id) do
-    Sale.list_contracts!() |> Enum.find(&(&1.sale_attempt_id == sale_attempt_id))
+    Sale.contracts_for_attempt!(sale_attempt_id) |> List.first()
   end
 
   defp deposit_for(contract_id) do
-    Sale.list_deposits!() |> Enum.find(&(&1.contract_id == contract_id))
+    Sale.deposits_for_contract!(contract_id) |> List.first()
   end
 
   defp commission_for(sale_attempt_id) do
-    Sale.list_commissions!() |> Enum.find(&(&1.sale_attempt_id == sale_attempt_id))
+    Sale.commissions_for_attempt!(sale_attempt_id) |> List.first()
   end
 
   defp received_documents(agency_agreement_id) do
@@ -142,10 +172,25 @@ defmodule AgencyWeb.ListingLive.Board do
       Enum.any?(required, &(&1 not in received)) -> :prep
       is_nil(attempt) -> :marketing
       attempt.outcome == :settled -> :settled
-      attempt.outcome != :running -> :lapsed
+      attempt.outcome != :running -> closed_stage(attempt, workflows)
       is_nil(contract) -> running_stage(attempt, workflows)
       is_nil(contract.unconditional_at) -> post_exchange_stage(attempt, workflows)
       true -> :awaiting_settlement
+    end
+  end
+
+  defp closed_stage(attempt, workflows) do
+    attempt_workflow_id = Map.get(workflows.attempt_workflow_ids, attempt.id)
+
+    cond do
+      attempt_workflow_id && Workflows.waiting_on?(attempt_workflow_id, "succession.decision") ->
+        :back_on_market
+
+      workflows.campaign_id ->
+        :marketing
+
+      true ->
+        :lapsed
     end
   end
 
@@ -192,16 +237,15 @@ defmodule AgencyWeb.ListingLive.Board do
 
   defp running_stage(%{sale_method: :treaty}, _workflows), do: :negotiating
 
-  defp history(attempts, current) do
+  defp history(attempts) do
     attempts
-    |> Enum.reject(&(current && &1.id == current.id))
     |> Enum.filter(&(&1.outcome in [:rescinded, :condition_failed, :buyer_default]))
     |> Enum.sort_by(& &1.generation, :desc)
     |> Enum.map(fn attempt ->
       contract = contract_for(attempt.id)
       deposit = contract && deposit_for(contract.id)
       commission = commission_for(attempt.id)
-      buyer = contract && Enum.find(Sale.list_buyers!(), &(&1.id == contract.buyer_id))
+      buyer = contract && Sale.get_buyer!(contract.buyer_id)
 
       %{
         attempt: attempt,
@@ -226,7 +270,7 @@ defmodule AgencyWeb.ListingLive.Board do
 
     contract_events =
       if contract do
-        buyer = Enum.find(Sale.list_buyers!(), &(&1.id == contract.buyer_id))
+        buyer = Sale.get_buyer!(contract.buyer_id)
 
         exchanged = [
           {contract.exchanged_at,

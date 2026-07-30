@@ -45,15 +45,33 @@ defmodule AgencyWeb.ListingLive do
   end
 
   def handle_event("launch_campaign", _params, socket) do
-    engagement_id = socket.assigns.board.workflows.engagement_id
-    signal!(engagement_id, "campaign.outcome", %{decision: :proceed})
+    campaign_id = socket.assigns.board.workflows.campaign_id
+    signal!(campaign_id, "campaign.outcome", %{decision: :proceed})
 
     {:noreply, load(socket)}
   end
 
   def handle_event("withdraw_listing", _params, socket) do
-    engagement_id = socket.assigns.board.workflows.engagement_id
-    signal!(engagement_id, "campaign.outcome", %{decision: :withdrawn})
+    campaign_id = socket.assigns.board.workflows.campaign_id
+    signal!(campaign_id, "campaign.outcome", %{decision: :withdrawn})
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("re_approach", %{"buyer_id" => buyer_id}, socket) do
+    board = socket.assigns.board
+
+    signal!(attempt_workflow_id(board), "succession.decision", %{
+      decision: :re_approach,
+      buyer_id: buyer_id
+    })
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("relaunch_campaign", _params, socket) do
+    board = socket.assigns.board
+    signal!(attempt_workflow_id(board), "succession.decision", %{decision: :relaunch})
 
     {:noreply, load(socket)}
   end
@@ -233,6 +251,7 @@ defmodule AgencyWeb.ListingLive do
   defp stage_label(:offers_in), do: "Offers in"
   defp stage_label(:auction_day), do: "Auction"
   defp stage_label(:negotiating), do: "Negotiating"
+  defp stage_label(:back_on_market), do: "Back on market"
   defp stage_label(:cooling), do: "Cooling off"
   defp stage_label(:conditions), do: "Conditions"
   defp stage_label(:awaiting_settlement), do: "Awaiting settlement"
@@ -241,6 +260,7 @@ defmodule AgencyWeb.ListingLive do
 
   defp status_pill(:settled), do: {"ok", "Settled"}
   defp status_pill(:lapsed), do: {"bad", "Ended"}
+  defp status_pill(:back_on_market), do: {"bad", "Back on market"}
 
   defp status_pill(stage) when stage in [:cooling, :conditions, :awaiting_settlement],
     do: {"ok", "Under contract"}
@@ -266,6 +286,7 @@ defmodule AgencyWeb.ListingLive do
   defp progress_index(stage) when stage in [:offers_open, :offers_in, :auction_day, :negotiating],
     do: 1
 
+  defp progress_index(:back_on_market), do: 1
   defp progress_index(:cooling), do: 3
   defp progress_index(:conditions), do: 4
   defp progress_index(:awaiting_settlement), do: 4
@@ -356,6 +377,14 @@ defmodule AgencyWeb.ListingLive do
 
   defp condition_by_kind(board, kind), do: Enum.find(board.conditions, &(&1.kind == kind))
 
+  defp headline(%{stage: stage} = board) when stage in [:back_on_market, :marketing, :lapsed],
+    do: {Board.money(board.agreement.guide_price), "guide"}
+
+  defp headline(%{contract: nil} = board),
+    do: {Board.money(board.agreement.guide_price), "guide"}
+
+  defp headline(board), do: {Board.money(board.contract.price), "under contract"}
+
   defp jurisdiction_label(:nsw), do: "New South Wales"
   defp jurisdiction_label(:vic), do: "Victoria"
   defp jurisdiction_label(:qld), do: "Queensland"
@@ -404,9 +433,10 @@ defmodule AgencyWeb.ListingLive do
               Vendor {@board.agreement.vendor_name} &middot; {Decimal.to_string(@board.agreement.commission_rate)}% inc GST, payable {payable_word(@board.agreement.commission_trigger)}
             </div>
           </div>
+          <% {headline_amount, headline_caption} = headline(@board) %>
           <div class="headline">
-            <div class="big">{Board.money((@board.contract && @board.contract.price) || @board.agreement.guide_price)}</div>
-            <div class="cap">{if @board.contract, do: "under contract", else: "guide"}</div>
+            <div class="big">{headline_amount}</div>
+            <div class="cap">{headline_caption}</div>
           </div>
         </div>
 
@@ -523,6 +553,16 @@ defmodule AgencyWeb.ListingLive do
     """
   end
 
+  defp finance_words(%{finance: :approved}), do: "Finance already approved"
+  defp finance_words(%{finance: :declined}), do: "Finance declined last time"
+  defp finance_words(%{finance: :cash}), do: "Cash purchase"
+
+  defp finance_words(%{finance: :subject_to_finance, buyer: %{lender: nil}}),
+    do: "Subject to finance"
+
+  defp finance_words(%{finance: :subject_to_finance, buyer: buyer}),
+    do: "Finance through #{buyer.lender}"
+
   defp payable_word(:on_settlement), do: "on settlement"
   defp payable_word(:on_unconditional), do: "on unconditional"
 
@@ -576,6 +616,8 @@ defmodule AgencyWeb.ListingLive do
     if active_negotiation(board), do: "Negotiating", else: "Choose the buyer"
   end
 
+  defp stage_title(%{stage: :back_on_market}), do: "Re-approach the underbidders"
+
   defp stage_title(%{stage: :cooling} = board),
     do: "Cooling off — ends #{when_at(board.contract.exchanged_at)}"
 
@@ -608,6 +650,9 @@ defmodule AgencyWeb.ListingLive do
       do: "The vendor and buyer are still bargaining over this offer.",
       else: "Every buyer has answered — pick who wins."
   end
+
+  defp stage_sub(%{stage: :back_on_market}),
+    do: "The contract fell through. Your buyer register is still warm."
 
   defp stage_sub(%{stage: :cooling}), do: "The buyer may still rescind before the period ends."
   defp stage_sub(%{stage: :conditions}), do: "The sale is not secure until all three clear."
@@ -702,6 +747,34 @@ defmodule AgencyWeb.ListingLive do
       },
       %{label: "Passed in", event: "passed_in", values: %{}, key: false, danger: false}
     ]
+  end
+
+  defp stage_actions(%{stage: :back_on_market} = board) do
+    re_approaches =
+      board.underbidders
+      |> Enum.with_index()
+      |> Enum.map(fn {underbidder, index} ->
+        %{
+          label: "Re-approach #{underbidder.buyer.name} at #{Board.money(underbidder.amount)}",
+          event: "re_approach",
+          values: %{"buyer_id" => underbidder.buyer.id},
+          key: index == 0,
+          danger: false,
+          hint: finance_words(underbidder)
+        }
+      end)
+
+    re_approaches ++
+      [
+        %{
+          label: "Relaunch the campaign",
+          event: "relaunch_campaign",
+          values: %{},
+          key: false,
+          danger: false,
+          hint: "Fresh marketing, new buyers"
+        }
+      ]
   end
 
   defp stage_actions(%{stage: :cooling} = board) do

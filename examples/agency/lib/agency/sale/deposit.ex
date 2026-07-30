@@ -31,6 +31,11 @@ defmodule Agency.Sale.Deposit do
   actions do
     defaults([:read])
 
+    read :for_contract do
+      argument(:contract_id, :uuid_v7, allow_nil?: false)
+      filter(expr(contract_id == ^arg(:contract_id)))
+    end
+
     create :collect do
       accept([:contract_id, :amount, :held_in])
     end

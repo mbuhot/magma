@@ -10,6 +10,12 @@ defmodule Agency.Sale.Attempt.Steps do
     Window.cooling_off(Jurisdiction.cooling_off(jurisdiction).business_days)
   end
 
+  @doc "How long the agent has to say who to go back to, bounded by what is left of the term."
+  @spec succession_window(map(), map()) :: pos_integer()
+  def succession_window(%{term_end: term_end}, _context) do
+    Window.remaining_term(term_end)
+  end
+
   @doc "Whether the PEXA workspace has closed, settled or defaulted, for the given contract."
   @spec settlement_status(map(), map()) :: {:ok, map()} | :not_yet
   def settlement_status(%{contract_id: contract_id}, _context) do
@@ -43,6 +49,7 @@ defmodule Agency.Sale.Attempt.Steps do
          commission_rate: agreement.commission_rate,
          commission_trigger: agreement.commission_trigger,
          guide_price: agreement.guide_price,
+         term_end: agreement.term_end,
          trust_account: "#{agreement.agent_name} Trust",
          offer_deadline: Window.offer_close()
        }}
@@ -401,6 +408,24 @@ defmodule Agency.Sale.Attempt.Steps do
     end
   end
 
+  defmodule Undecided do
+    @moduledoc false
+    use Reactor.Step
+
+    @impl true
+    def run(_arguments, _context, _options) do
+      {:ok, %{outcome: :no_sale, reason: :undecided}}
+    end
+  end
+
+  defmodule Relaunching do
+    @moduledoc false
+    use Reactor.Step
+
+    @impl true
+    def run(_arguments, _context, _options), do: {:ok, %{outcome: :relaunch}}
+  end
+
   defmodule Succession do
     @moduledoc false
     use Reactor.Step
@@ -411,9 +436,9 @@ defmodule Agency.Sale.Attempt.Steps do
     def run(%{attempt: %{outcome: :settled}}, _context, _options), do: {:ok, :report}
 
     def run(%{setting: setting}, _context, _options) do
-      case Register.approachable(setting.agency_agreement_id, setting.sale_attempt_id) do
+      case Register.approachable(setting.agency_agreement_id) do
         [] -> {:ok, :register_exhausted}
-        [_first | _rest] -> {:ok, :next_generation}
+        [_first | _rest] -> {:ok, :decide}
       end
     end
   end
@@ -427,7 +452,14 @@ defmodule Agency.Sale.Attempt.Steps do
     alias Agency.Sale.Window
 
     @impl true
-    def run(%{setting: setting}, _context, _options) do
+    def run(%{setting: setting, decision: %{buyer_id: buyer_id}}, _context, _options) do
+      case chosen(setting.agency_agreement_id, buyer_id) do
+        nil -> {:error, "the agent chose #{buyer_id}, who this listing cannot go back to"}
+        {buyer, offer} -> {:ok, open_against(setting, buyer, offer)}
+      end
+    end
+
+    defp open_against(setting, buyer, offer) do
       successor =
         Sale.open_attempt!(%{
           agency_agreement_id: setting.agency_agreement_id,
@@ -437,20 +469,22 @@ defmodule Agency.Sale.Attempt.Steps do
           opened_at: DateTime.utc_now() |> DateTime.truncate(:second)
         })
 
-      setting.agency_agreement_id
-      |> Register.approachable(setting.sale_attempt_id)
-      |> Enum.each(fn {buyer, offer} ->
-        Sale.make_offer!(%{
-          sale_attempt_id: successor.id,
-          buyer_id: buyer.id,
-          amount: offer.amount,
-          requested_conditions: offer.requested_conditions,
-          expires_at: Window.offer_expiry(),
-          supersedes_id: offer.id
-        })
-      end)
+      Sale.make_offer!(%{
+        sale_attempt_id: successor.id,
+        buyer_id: buyer.id,
+        amount: offer.amount,
+        requested_conditions: offer.requested_conditions,
+        expires_at: Window.offer_expiry(),
+        supersedes_id: offer.id
+      })
 
-      {:ok, %{sale_attempt_id: successor.id, generation: successor.generation}}
+      %{sale_attempt_id: successor.id, generation: successor.generation}
+    end
+
+    defp chosen(agency_agreement_id, buyer_id) do
+      agency_agreement_id
+      |> Register.approachable()
+      |> Enum.find(fn {buyer, _offer} -> buyer.id == buyer_id end)
     end
   end
 end
