@@ -201,6 +201,99 @@ defmodule Magma.CompositeTest do
     end
   end
 
+  describe "a map whose elements each run a child at the same time" do
+    setup do
+      on_exit(fn -> Application.delete_env(:magma, :test_refused_transfers) end)
+      :ok
+    end
+
+    test "every child is under way before any of them has answered" do
+      {:ok, workflow} = start_three_rails()
+
+      run_workflows(with_recursion: false)
+
+      assert status(workflow) == :waiting
+      assert Effects.count(:rail_send) == 0
+
+      assert Enum.map(0..2, &status(rail_child(workflow, &1))) == [:pending, :pending, :pending]
+    end
+
+    test "every child has an id of its own and every element keeps what came back" do
+      {:ok, workflow} = start_three_rails()
+
+      run_workflows()
+
+      assert status(workflow) == :completed
+      assert Effects.count(:rail_send) == 3
+      assert Effects.count(:settle) == 1
+
+      assert Enum.uniq(Enum.map(0..2, &rail_child(workflow, &1))) |> length() == 3
+
+      assert Enum.map(0..2, &recorded(workflow, rail_element(&1))) == [
+               {:rail_send, "t1"},
+               {:rail_send, "t2"},
+               {:rail_send, "t3"}
+             ]
+    end
+
+    test "the children can answer in any order" do
+      {:ok, workflow} = start_three_rails()
+      run_workflows(with_recursion: false)
+
+      Enum.each([1, 2, 0], fn index ->
+        attempt(rail_child(workflow, index))
+        attempt(workflow.id)
+      end)
+
+      assert status(workflow) == :completed
+      assert Effects.count(:rail_send) == 3
+      assert Effects.count(:settle) == 1
+
+      assert Enum.map(0..2, &recorded(workflow, rail_element(&1))) == [
+               {:rail_send, "t1"},
+               {:rail_send, "t2"},
+               {:rail_send, "t3"}
+             ]
+    end
+
+    test "nothing is run a second time on a later attempt" do
+      {:ok, workflow} = start_three_rails()
+      run_workflows()
+
+      attempt(workflow.id)
+
+      assert Effects.count(:rail_send) == 3
+      assert Effects.count(:settle) == 1
+      assert status(workflow) == :completed
+    end
+
+    test "one child turning the transfer down fails the whole thing and settles nothing" do
+      Application.put_env(:magma, :test_refused_transfers, ["t2"])
+
+      {:ok, workflow} = start_three_rails()
+
+      run_workflows()
+
+      assert status(workflow) == :failed
+      assert Effects.count(:settle) == 0
+      assert status(rail_child(workflow, 0)) == :completed
+      assert status(rail_child(workflow, 1)) == :failed
+      assert status(rail_child(workflow, 2)) == :completed
+    end
+  end
+
+  defp start_three_rails do
+    Magma.start(Workflows.ConcurrentDispatch, %{transfer_ids: ["t1", "t2", "t3"]})
+  end
+
+  defp rail_element(index), do: {Reactor.Step.Map, :rails, :rail, index}
+
+  defp rail_child(workflow, index), do: Magma.child_id(workflow.id, rail_element(index))
+
+  defp attempt(workflow_id) do
+    Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow_id}})
+  end
+
   test "the names a map generates are the same on every attempt" do
     {:ok, first} = Magma.start(Workflows.Mapped, %{order_ids: ["a", "b"]})
     run_workflows()

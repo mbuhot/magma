@@ -436,6 +436,57 @@ defmodule Magma.Test.Workflows do
     return(:settle)
   end
 
+  defmodule RefusableRail do
+    @moduledoc "A rail that turns down whichever transfers config names."
+    use Reactor
+
+    input(:transfer_id)
+
+    step :send do
+      argument(:transfer_id, input(:transfer_id))
+      run(&Magma.Test.Workflows.send_transfer/2)
+    end
+
+    return(:send)
+  end
+
+  @doc false
+  def send_transfer(%{transfer_id: transfer_id}, _context) do
+    Effects.record(:rail_send)
+
+    if transfer_id in Application.get_env(:magma, :test_refused_transfers, []) do
+      {:error, "the rail turned down #{transfer_id}"}
+    else
+      {:ok, {:rail_send, transfer_id}}
+    end
+  end
+
+  defmodule ConcurrentDispatch do
+    @moduledoc "A map whose elements each run a child, all of them in flight together."
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:transfer_ids)
+
+    map :rails do
+      source(input(:transfer_ids))
+      allow_async?(true)
+
+      dispatch :rail do
+        workflow(Magma.Test.Workflows.RefusableRail)
+        block_ms(0)
+        argument(:transfer_id, element(:rails))
+      end
+
+      return(:rail)
+    end
+
+    step :settle, {Effect, name: :settle} do
+      argument(:rails, result(:rails))
+    end
+
+    return(:settle)
+  end
+
   defmodule Branching do
     @moduledoc false
     use Reactor

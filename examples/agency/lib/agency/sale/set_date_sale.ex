@@ -32,6 +32,7 @@ defmodule Agency.Sale.SetDateSale do
 
   map :negotiations do
     source(result(:live_offers))
+    allow_async?(true)
 
     dispatch :negotiation do
       workflow(Agency.Sale.Negotiation)
