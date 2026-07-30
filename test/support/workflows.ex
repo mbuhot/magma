@@ -233,6 +233,57 @@ defmodule Magma.Test.Workflows do
     return(:total)
   end
 
+  defmodule MappedApproval do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:order_ids)
+
+    map :approvals do
+      source(input(:order_ids))
+
+      await(:confirmation, signal: "confirm", block_ms: 0)
+
+      step :charge, {Effect, name: :charge} do
+        argument(:order_id, element(:approvals))
+        argument(:confirmation, result(:confirmation))
+      end
+
+      return(:charge)
+    end
+
+    step :total, {Effect, name: :total} do
+      argument(:approvals, result(:approvals))
+    end
+
+    return(:total)
+  end
+
+  defmodule MappedDispatch do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:transfer_ids)
+
+    map :rails do
+      source(input(:transfer_ids))
+
+      dispatch :rail do
+        workflow(Magma.Test.Workflows.Rail)
+        block_ms(0)
+        argument(:transfer_id, element(:rails))
+      end
+
+      return(:rail)
+    end
+
+    step :settle, {Effect, name: :settle} do
+      argument(:rails, result(:rails))
+    end
+
+    return(:settle)
+  end
+
   defmodule Branching do
     @moduledoc false
     use Reactor
@@ -244,6 +295,61 @@ defmodule Magma.Test.Workflows do
 
       matches? &(&1 > 100) do
         step(:large, {Effect, name: :large})
+      end
+
+      default do
+        step(:small, {Effect, name: :small})
+      end
+    end
+
+    return(:route)
+  end
+
+  defmodule BranchedApproval do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:amount)
+
+    switch :route do
+      on(input(:amount))
+
+      matches? &(&1 > 100) do
+        await(:confirmation, signal: "confirm", block_ms: 0)
+
+        step :large, {Effect, name: :large} do
+          argument(:confirmation, result(:confirmation))
+        end
+      end
+
+      default do
+        step(:small, {Effect, name: :small})
+      end
+    end
+
+    return(:route)
+  end
+
+  defmodule BranchedDispatch do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:amount)
+    input(:transfer_id)
+
+    switch :route do
+      on(input(:amount))
+
+      matches? &(&1 > 100) do
+        dispatch :rail do
+          workflow(Magma.Test.Workflows.Rail)
+          block_ms(0)
+          argument(:transfer_id, input(:transfer_id))
+        end
+
+        step :reconcile, {Effect, name: :reconcile} do
+          argument(:rail, result(:rail))
+        end
       end
 
       default do
