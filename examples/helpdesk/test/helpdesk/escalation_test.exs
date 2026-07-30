@@ -68,7 +68,8 @@ defmodule Helpdesk.EscalationTest do
     workflow = escalate(context.ticket, context.manager)
     decide(workflow, :approved, context.manager)
 
-    {:ok, [entry]} = Helpdesk.Support.audit_trail(tenant: context.organisation.id, actor: context.manager)
+    {:ok, [entry]} =
+      Helpdesk.Support.audit_trail(tenant: context.organisation.id, actor: context.manager)
 
     assert entry.actor_name == "Grace"
     assert entry.action == "escalation decided"

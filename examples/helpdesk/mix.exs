@@ -38,7 +38,7 @@ defmodule Helpdesk.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "ecto.create --quiet", "ecto.migrate"],
+      setup: ["deps.get", "ecto.create --quiet", "ecto.migrate", "run priv/repo/seeds.exs"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"]
     ]
   end

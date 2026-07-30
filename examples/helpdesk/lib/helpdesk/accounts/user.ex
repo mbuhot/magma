@@ -38,9 +38,10 @@ defmodule Helpdesk.Accounts.User do
   end
 
   calculations do
-    calculate(:permissions, {:array, Helpdesk.Accounts.Permission}, Helpdesk.Accounts.Calculations.Permissions,
-      public?: true
-    )
+    calculate(
+      :permissions,
+      {:array, Helpdesk.Accounts.Permission},
+      Helpdesk.Accounts.Calculations.Permissions, public?: true)
   end
 
   actions do
