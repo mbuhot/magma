@@ -26,6 +26,11 @@ defmodule Agency.Sale.ComplianceDocument do
       accept([:agency_agreement_id, :kind])
     end
 
+    create :arrive do
+      accept([:agency_agreement_id, :kind])
+      change(set_attribute(:received_at, &DateTime.utc_now/0))
+    end
+
     update :receive do
       accept([:received_at])
     end

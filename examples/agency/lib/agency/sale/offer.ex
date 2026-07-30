@@ -44,6 +44,12 @@ defmodule Agency.Sale.Offer do
       filter(expr(id == ^arg(:id)))
     end
 
+    read :live_for_attempt do
+      argument(:sale_attempt_id, :uuid_v7, allow_nil?: false)
+      filter(expr(sale_attempt_id == ^arg(:sale_attempt_id) and status == :live))
+      prepare(build(sort: [amount: :desc]))
+    end
+
     create :make do
       accept([
         :sale_attempt_id,

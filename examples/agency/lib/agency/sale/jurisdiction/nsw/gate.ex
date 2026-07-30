@@ -23,7 +23,7 @@ defmodule Agency.Sale.Jurisdiction.NSW.Gate do
     timeout(:timer.hours(24 * 60))
   end
 
-  create :contract_document, ComplianceDocument, :require do
+  create :contract_document, ComplianceDocument, :arrive do
     inputs(%{agency_agreement_id: input(:agency_agreement_id), kind: value(:contract)})
     wait_for(:contract)
   end
@@ -33,7 +33,7 @@ defmodule Agency.Sale.Jurisdiction.NSW.Gate do
     timeout(:timer.hours(24 * 60))
   end
 
-  create :title_search_document, ComplianceDocument, :require do
+  create :title_search_document, ComplianceDocument, :arrive do
     inputs(%{agency_agreement_id: input(:agency_agreement_id), kind: value(:title_search)})
     wait_for(:title_search)
   end
@@ -43,7 +43,7 @@ defmodule Agency.Sale.Jurisdiction.NSW.Gate do
     timeout(:timer.hours(24 * 60))
   end
 
-  create :drainage_diagram_document, ComplianceDocument, :require do
+  create :drainage_diagram_document, ComplianceDocument, :arrive do
     inputs(%{agency_agreement_id: input(:agency_agreement_id), kind: value(:drainage_diagram)})
     wait_for(:drainage_diagram)
   end
@@ -53,7 +53,7 @@ defmodule Agency.Sale.Jurisdiction.NSW.Gate do
     timeout(:timer.hours(24 * 60))
   end
 
-  create :planning_certificate_document, ComplianceDocument, :require do
+  create :planning_certificate_document, ComplianceDocument, :arrive do
     inputs(%{
       agency_agreement_id: input(:agency_agreement_id),
       kind: value(:planning_certificate)

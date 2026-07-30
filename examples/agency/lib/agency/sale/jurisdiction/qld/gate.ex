@@ -20,7 +20,7 @@ defmodule Agency.Sale.Jurisdiction.QLD.Gate do
     timeout(:timer.hours(24 * 60))
   end
 
-  create :form_6_document, ComplianceDocument, :require do
+  create :form_6_document, ComplianceDocument, :arrive do
     inputs(%{agency_agreement_id: input(:agency_agreement_id), kind: value(:form_6)})
     wait_for(:form_6)
   end
@@ -30,7 +30,7 @@ defmodule Agency.Sale.Jurisdiction.QLD.Gate do
     timeout(:timer.hours(24 * 60))
   end
 
-  create :seller_disclosure_document, ComplianceDocument, :require do
+  create :seller_disclosure_document, ComplianceDocument, :arrive do
     inputs(%{agency_agreement_id: input(:agency_agreement_id), kind: value(:seller_disclosure)})
     wait_for(:seller_disclosure)
   end
@@ -40,7 +40,7 @@ defmodule Agency.Sale.Jurisdiction.QLD.Gate do
     timeout(:timer.hours(24 * 60))
   end
 
-  create :title_search_document, ComplianceDocument, :require do
+  create :title_search_document, ComplianceDocument, :arrive do
     inputs(%{agency_agreement_id: input(:agency_agreement_id), kind: value(:title_search)})
     wait_for(:title_search)
   end

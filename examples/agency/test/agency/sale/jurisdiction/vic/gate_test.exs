@@ -54,5 +54,7 @@ defmodule Agency.Sale.Jurisdiction.VIC.GateTest do
              :title_search,
              :vendor_statement
            ]
+
+    assert Enum.all?(reloaded.compliance_documents, &(&1.received_at != nil))
   end
 end

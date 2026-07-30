@@ -23,6 +23,7 @@ defmodule Agency.Sale do
 
     resource Agency.Sale.ComplianceDocument do
       define(:require_document, action: :require)
+      define(:record_document_arrival, action: :arrive)
       define(:receive_document, action: :receive, get_by: [:id])
       define(:list_compliance_documents, action: :read)
     end
@@ -44,6 +45,7 @@ defmodule Agency.Sale do
       define(:make_offer, action: :make)
       define(:set_offer_status, action: :set_status, get_by: [:id])
       define(:get_offer, action: :by_id, args: [:id])
+      define(:live_offers_for_attempt, action: :live_for_attempt, args: [:sale_attempt_id])
       define(:list_offers, action: :read)
     end
 

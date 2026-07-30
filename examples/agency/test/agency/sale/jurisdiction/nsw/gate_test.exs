@@ -59,5 +59,7 @@ defmodule Agency.Sale.Jurisdiction.NSW.GateTest do
              :planning_certificate,
              :title_search
            ]
+
+    assert Enum.all?(reloaded.compliance_documents, &(&1.received_at != nil))
   end
 end

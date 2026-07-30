@@ -8,6 +8,7 @@ defmodule Agency.Sale.OfferStatus do
       final: "the vendor's last position, unable to be countered further",
       accepted: "the vendor accepted, and it became a contract",
       superseded: "replaced by a later offer from the same negotiation",
+      missed: "acceptable, but the vendor took another offer",
       lapsed: "expired without a response",
       withdrawn: "the buyer pulled it"
     ]

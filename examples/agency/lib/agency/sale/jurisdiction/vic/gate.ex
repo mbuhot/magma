@@ -20,7 +20,7 @@ defmodule Agency.Sale.Jurisdiction.VIC.Gate do
     timeout(:timer.hours(24 * 60))
   end
 
-  create :vendor_statement_document, ComplianceDocument, :require do
+  create :vendor_statement_document, ComplianceDocument, :arrive do
     inputs(%{agency_agreement_id: input(:agency_agreement_id), kind: value(:vendor_statement)})
     wait_for(:vendor_statement)
   end
@@ -30,7 +30,7 @@ defmodule Agency.Sale.Jurisdiction.VIC.Gate do
     timeout(:timer.hours(24 * 60))
   end
 
-  create :statement_of_information_document, ComplianceDocument, :require do
+  create :statement_of_information_document, ComplianceDocument, :arrive do
     inputs(%{
       agency_agreement_id: input(:agency_agreement_id),
       kind: value(:statement_of_information)
@@ -44,7 +44,7 @@ defmodule Agency.Sale.Jurisdiction.VIC.Gate do
     timeout(:timer.hours(24 * 60))
   end
 
-  create :title_search_document, ComplianceDocument, :require do
+  create :title_search_document, ComplianceDocument, :arrive do
     inputs(%{agency_agreement_id: input(:agency_agreement_id), kind: value(:title_search)})
     wait_for(:title_search)
   end
