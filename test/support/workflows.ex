@@ -366,6 +366,57 @@ defmodule Magma.Test.Workflows do
     |> Map.fetch!(currency)
   end
 
+  defmodule Leg do
+    @moduledoc false
+    use Reactor
+
+    input(:transfer_id)
+
+    step :body, {Effect, name: :leg_body} do
+      argument(:transfer_id, input(:transfer_id))
+    end
+
+    return(:body)
+  end
+
+  defmodule LegLoop do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:transfer_id)
+
+    dispatch :leg do
+      workflow(Magma.Test.Workflows.Leg)
+      block_ms(50)
+      argument(:transfer_id, input(:transfer_id))
+    end
+
+    step :carry do
+      argument(:transfer_id, input(:transfer_id))
+      argument(:leg, result(:leg))
+      run(&Magma.Test.Workflows.carry/2)
+    end
+
+    return(:carry)
+  end
+
+  @doc false
+  def carry(%{transfer_id: transfer_id}, _context), do: {:ok, %{transfer_id: transfer_id}}
+
+  defmodule Legs do
+    @moduledoc false
+    use Reactor, extensions: [Magma.Dsl]
+
+    input(:transfer_id)
+
+    recurse :loop, Magma.Test.Workflows.LegLoop do
+      max_iterations(2)
+      argument(:transfer_id, input(:transfer_id))
+    end
+
+    return(:loop)
+  end
+
   defmodule Ephemeral do
     @moduledoc false
     use Reactor, extensions: [Magma.Dsl]

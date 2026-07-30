@@ -66,6 +66,27 @@ defmodule Magma.NestingCompositeTest do
     assert Effects.count(:after_compose) == 1
   end
 
+  test "a dispatch inside a recurse is refused, and dispatches nothing" do
+    {:ok, workflow} = Magma.start(Workflows.Legs, %{transfer_id: "tr_1"})
+
+    run_workflows()
+
+    assert status(workflow) == :failed
+    assert Effects.count(:leg_body) == 0
+  end
+
+  test "the refusal names the step and the composite it sits inside" do
+    {:ok, workflow} = Magma.start(Workflows.Legs, %{transfer_id: "tr_1"})
+
+    run_workflows()
+
+    {:ok, failed} = Magma.Store.get_workflow(workflow.id)
+    message = Exception.message(failed.error)
+
+    assert message =~ "dispatch :leg sits inside :loop"
+    assert message =~ "Move it into the outer reactor"
+  end
+
   test "a compose's run step holds no checkpoint, since its value carries a live reactor" do
     {:ok, workflow} = Magma.start(Workflows.Composed, %{order_id: "ord_1"})
 

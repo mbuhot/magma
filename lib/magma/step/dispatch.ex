@@ -26,6 +26,7 @@ defmodule Magma.Step.Dispatch do
 
   @impl true
   def run(arguments, context, options) do
+    :ok = Run.assert_own_step!(context, "dispatch")
     parent_id = workflow_id(context)
     name = context.current_step.name
     child_id = Magma.Key.child_id(parent_id, name)

@@ -20,6 +20,7 @@ defmodule Magma.Step.Await do
 
   @impl true
   def run(_arguments, context, options) do
+    :ok = Run.assert_own_step!(context, "await")
     name = Keyword.fetch!(options, :signal)
     workflow_id = workflow_id(context)
 

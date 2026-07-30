@@ -21,6 +21,8 @@ defmodule Magma.Step.Poll do
 
   @impl true
   def run(arguments, context, options) do
+    :ok = Run.assert_own_step!(context, "poll")
+
     case check(Keyword.fetch!(options, :until), arguments, context) do
       {:ok, value} -> {:ok, value}
       :not_yet -> park(context, options)

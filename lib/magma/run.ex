@@ -93,6 +93,31 @@ defmodule Magma.Run do
   defp apply_guard({m, f, a}, arguments, context), do: apply(m, f, [arguments, context | a])
   defp apply_guard(fun, arguments, context) when is_function(fun, 2), do: fun.(arguments, context)
 
+  @doc """
+  Raises unless the running step is one of the outer plan's own.
+
+  `group`, `around`, `recurse` and `compose` run a private reactor inline, and its steps never
+  reach the outer plan, so they carry no checkpoint and a halt inside one reaches Reactor as an
+  invalid result. A step that records or halts refuses to run there.
+  """
+  @spec assert_own_step!(map(), String.t()) :: :ok
+  def assert_own_step!(context, entity) do
+    own = Map.get(context, :magma_step)
+    current = Map.get(context, :current_step)
+
+    if own === current do
+      :ok
+    else
+      raise """
+      #{entity} #{Key.label(current.name)} sits inside #{Key.label(own.name)}, a nesting \
+      composite that runs its steps in a private reactor.
+
+      Such a step holds no checkpoint of its own and cannot halt to wait. Move it into the \
+      outer reactor, or under a `map` or a `switch`.
+      """
+    end
+  end
+
   @doc "What a step recorded on an earlier attempt, if anything."
   @spec recorded(map(), term()) :: {:ok, term()} | :miss
   def recorded(%{magma: %__MODULE__{checkpoints: checkpoints}}, name) do

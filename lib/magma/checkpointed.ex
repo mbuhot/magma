@@ -8,6 +8,10 @@ defmodule Magma.Checkpointed do
   # never be taken back. Returning it through `run/3` makes the step an ordinary success — it
   # lands on the undo stack, stores an intermediate result, and unwinds with everything else.
   #
+  # The step it is about to run goes into the context as `:magma_step`, which is how a step that
+  # must record or halt tells that it is the outer plan's own rather than a child of a nesting
+  # composite's private reactor.
+  #
   # Every other callback delegates to the step this wraps.
 
   use Reactor.Step
@@ -28,7 +32,7 @@ defmodule Magma.Checkpointed do
     inner = inner_step(context, options)
 
     inner
-    |> Reactor.Step.run(arguments, %{context | current_step: inner})
+    |> Reactor.Step.run(arguments, Map.put(%{context | current_step: inner}, :magma_step, inner))
     |> handle(context, name)
   end
 

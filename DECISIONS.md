@@ -358,3 +358,26 @@ credited twice. Forward progress had the unique index for this. Rollback had not
 **Costs:** a crash between the claim and the undo leaves a step marked that was never taken
 back. The mark is the progress log, so that step is treated as done and its work stands. A
 claim carrying a lease, rather than a plain mark, is what would close it.
+
+---
+
+## 24. A halting step refuses to run inside a nesting composite
+
+`await`, `poll` and `dispatch` check that the step Reactor is running is one magma wrapped, and
+raise a message naming the step and the composite it sits inside when it is not.
+`Magma.Checkpointed` puts the step it wraps into the context as `:magma_step`, and comparing
+that to `:current_step` is the check.
+
+**Why:** a nesting composite — `group`, `around`, `recurse`, `compose` — calls `Reactor.run/4`
+on a private reactor whose steps magma never sees. `{:halt, _}` from a step in there becomes
+`{:halted, %Reactor{}}` as the composite's own result, which Reactor rejects as an invalid
+result, so the workflow failed with a page of struct rather than an explanation.
+
+**What else it closes:** `Reactor.Step.Recurse` builds every continuation with the same step
+name, so a `dispatch` in a recursed reactor derived one child id for every iteration. Iteration
+two adopted iteration one's finished child and waited on a signal already consumed. There is
+nothing deterministic in the inner reactor's context that distinguishes an iteration, so a
+correct id could not be derived.
+
+**Costs:** waiting inside a loop is expressed by a `map` over the work, or by a child workflow
+that does the looping. A `recurse` in a workflow that waits stays a pure one.
