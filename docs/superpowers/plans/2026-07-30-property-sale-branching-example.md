@@ -80,7 +80,6 @@ Write `usage-rules.md` at the repo root, split into `usage-rules/` topic files i
 | `map` concurrency | `allow_async?` defaults to false, so dispatched children serialise. Set it when fan-out must be concurrent |
 | Timeouts | Measured once when a wait first parks and held on the waiter row. Integer, 2-arity function, or MFA |
 | Testing | `run_workflows/1` with `with_scheduled: true` and `with_recursion: true` re-executes a snoozed `poll` without bound |
-| Reading checkpoints elsewhere | `Magma.Type.Term` decodes with `:safe` atoms, so a process must have loaded the modules a stored term references |
 
 Also add a line to each of `Magma.Dsl.Await`, `Magma.Dsl.Poll` and `Magma.Dsl.Dispatch` — the
 entity docs are what a developer reads first, and they currently say none of this.
