@@ -13,8 +13,9 @@ defmodule AgencyWeb.ListingLive.Board do
   alias Agency.Lender
   alias Agency.Sale
   alias Agency.Sale.Jurisdiction
+  alias Agency.Sale.Ledger
   alias Agency.Sale.Register
-  alias AgencyWeb.ListingLive.Workflows
+  alias Agency.Sale.Runs
 
   defstruct [
     :agreement,
@@ -29,6 +30,7 @@ defmodule AgencyWeb.ListingLive.Board do
     :conditions,
     :deposit,
     :commission,
+    :totals,
     :history,
     :underbidders,
     :feed,
@@ -77,10 +79,10 @@ defmodule AgencyWeb.ListingLive.Board do
     offers = attempt && Sale.offers_for_attempt!(attempt.id)
 
     workflows = %{
-      engagement_id: Workflows.engagement_id(agency_agreement_id),
-      campaign_id: Workflows.campaign_id(agency_agreement_id),
-      attempt_workflow_ids: Workflows.attempt_workflow_ids(attempts),
-      negotiations: Workflows.negotiations_awaiting_response()
+      engagement_id: Runs.engagement_id(agency_agreement_id),
+      campaign_id: Runs.campaign_id(agency_agreement_id),
+      attempt_workflow_ids: Runs.attempt_workflow_ids(attempts),
+      negotiations: Runs.negotiations_awaiting_response()
     }
 
     %__MODULE__{
@@ -96,6 +98,7 @@ defmodule AgencyWeb.ListingLive.Board do
       conditions: conditions,
       deposit: deposit,
       commission: commission,
+      totals: totals(commission, deposit, history(attempts)),
       history: history(attempts),
       underbidders: underbidders(agency_agreement_id, attempts),
       feed: feed(agreement, attempts, contract, conditions, commission, deposit),
@@ -170,6 +173,7 @@ defmodule AgencyWeb.ListingLive.Board do
 
     cond do
       Enum.any?(required, &(&1 not in received)) -> :prep
+      is_nil(attempt) and is_nil(workflows.campaign_id) -> :prep
       is_nil(attempt) -> :marketing
       attempt.outcome == :settled -> :settled
       attempt.outcome != :running -> closed_stage(attempt, workflows)
@@ -183,7 +187,7 @@ defmodule AgencyWeb.ListingLive.Board do
     attempt_workflow_id = Map.get(workflows.attempt_workflow_ids, attempt.id)
 
     cond do
-      attempt_workflow_id && Workflows.waiting_on?(attempt_workflow_id, "succession.decision") ->
+      attempt_workflow_id && Runs.waiting_on?(attempt_workflow_id, "succession.decision") ->
         :back_on_market
 
       workflows.campaign_id ->
@@ -197,7 +201,7 @@ defmodule AgencyWeb.ListingLive.Board do
   defp post_exchange_stage(attempt, workflows) do
     attempt_workflow_id = Map.get(workflows.attempt_workflow_ids, attempt.id)
 
-    if attempt_workflow_id && Workflows.waiting_on?(attempt_workflow_id, "cooling_off.rescission") do
+    if attempt_workflow_id && Runs.waiting_on?(attempt_workflow_id, "cooling_off.rescission") do
       :cooling
     else
       :conditions
@@ -208,9 +212,9 @@ defmodule AgencyWeb.ListingLive.Board do
     attempt_workflow_id = Map.get(workflows.attempt_workflow_ids, attempt.id)
 
     auction_id =
-      attempt_workflow_id && Workflows.method_workflow_id(attempt_workflow_id, :auction)
+      attempt_workflow_id && Runs.method_workflow_id(attempt_workflow_id, :auction)
 
-    if auction_id && Workflows.waiting_on?(auction_id, "auction.hammer") do
+    if auction_id && Runs.waiting_on?(auction_id, "auction.hammer") do
       :auction_day
     else
       :negotiating
@@ -221,13 +225,13 @@ defmodule AgencyWeb.ListingLive.Board do
     attempt_workflow_id = Map.get(workflows.attempt_workflow_ids, attempt.id)
 
     set_date_id =
-      attempt_workflow_id && Workflows.method_workflow_id(attempt_workflow_id, :set_date)
+      attempt_workflow_id && Runs.method_workflow_id(attempt_workflow_id, :set_date)
 
     cond do
-      set_date_id && Workflows.waiting_on?(set_date_id, "set_date.offers_close") ->
+      set_date_id && Runs.waiting_on?(set_date_id, "set_date.offers_close") ->
         :offers_open
 
-      set_date_id && Workflows.waiting_on?(set_date_id, "set_date.vendor_selection") ->
+      set_date_id && Runs.waiting_on?(set_date_id, "set_date.vendor_selection") ->
         :negotiating
 
       true ->
@@ -236,6 +240,13 @@ defmodule AgencyWeb.ListingLive.Board do
   end
 
   defp running_stage(%{sale_method: :treaty}, _workflows), do: :negotiating
+
+  defp totals(commission, deposit, history) do
+    commissions = [commission | Enum.map(history, & &1.commission)] |> Enum.reject(&is_nil/1)
+    deposits = [deposit | Enum.map(history, & &1.deposit)] |> Enum.reject(&is_nil/1)
+
+    Ledger.totals(commissions, deposits)
+  end
 
   defp history(attempts) do
     attempts

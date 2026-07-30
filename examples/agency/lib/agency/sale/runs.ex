@@ -1,4 +1,4 @@
-defmodule AgencyWeb.ListingLive.Workflows do
+defmodule Agency.Sale.Runs do
   @moduledoc """
   The magma workflow ids behind one listing, and what they are parked on.
 
@@ -124,5 +124,37 @@ defmodule AgencyWeb.ListingLive.Workflows do
       end
     end)
     |> Map.new()
+  end
+
+  @doc "The compliance gate behind a listing."
+  @spec gate_id(String.t()) :: String.t()
+  def gate_id(agency_agreement_id) do
+    agency_agreement_id |> engagement_id() |> compliance_gate_id()
+  end
+
+  @doc "The workflow running a listing's latest sale attempt."
+  @spec attempt_id(String.t()) :: String.t()
+  def attempt_id(agency_agreement_id) do
+    attempt = agency_agreement_id |> Agency.Sale.attempts_for_agreement!() |> List.last()
+
+    [attempt] |> attempt_workflow_ids() |> Map.fetch!(attempt.id)
+  end
+
+  @doc "The workflow running the sale method of a listing's latest attempt."
+  @spec method_id(String.t(), atom()) :: String.t()
+  def method_id(agency_agreement_id, method) do
+    agency_agreement_id |> attempt_id() |> method_workflow_id(method)
+  end
+
+  @doc "The conditions workflow of a listing's latest attempt."
+  @spec conditions_of(String.t()) :: String.t()
+  def conditions_of(agency_agreement_id) do
+    agency_agreement_id |> attempt_id() |> conditions_id()
+  end
+
+  @doc "The negotiation presently awaiting a response to the given offer."
+  @spec negotiation_of_offer(String.t()) :: String.t()
+  def negotiation_of_offer(offer_id) do
+    negotiations_awaiting_response() |> Map.fetch!(offer_id)
   end
 end

@@ -11,9 +11,23 @@ defmodule AgencyWeb.ConsoleLive do
   use AgencyWeb, :live_view
 
   alias AgencyWeb.ConsoleLive.Board
+  alias AgencyWeb.Updates
 
   @impl true
-  def mount(_params, _session, socket), do: {:ok, assign(socket, status_filter: :all)}
+  @safety_net 2_000
+
+  def mount(_params, _session, socket) do
+    if connected?(socket) do
+      Updates.follow()
+      :timer.send_interval(@safety_net, self(), :look_again)
+    end
+
+    {:ok, assign(socket, status_filter: :all)}
+  end
+
+  @impl true
+  def handle_info(%Phoenix.Socket.Broadcast{}, socket), do: {:noreply, reload(socket)}
+  def handle_info(:look_again, socket), do: {:noreply, reload(socket)}
 
   @impl true
   def handle_params(params, _uri, socket) do
@@ -46,6 +60,14 @@ defmodule AgencyWeb.ConsoleLive do
 
   defp parse_status("all"), do: :all
   defp parse_status(status), do: String.to_existing_atom(status)
+
+  defp reload(socket) do
+    workflows = Board.workflows()
+
+    socket
+    |> assign(workflows: workflows, tree: Board.tree(workflows))
+    |> load_detail()
+  end
 
   defp load_detail(socket) do
     case socket.assigns.selected_id do

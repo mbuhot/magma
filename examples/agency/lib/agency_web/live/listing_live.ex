@@ -11,15 +11,27 @@ defmodule AgencyWeb.ListingLive do
 
   use AgencyWeb, :live_view
 
-  alias Agency.Lender
-  alias Agency.Pexa
   alias Agency.Sale
-  alias Agency.Titles
   alias AgencyWeb.ListingLive.Board
-  alias AgencyWeb.ListingLive.Workflows
+  alias AgencyWeb.Updates
 
   @impl true
-  def mount(_params, _session, socket), do: {:ok, socket}
+  def mount(_params, _session, socket) do
+    if connected?(socket), do: Updates.follow()
+
+    {:ok, socket}
+  end
+
+  @impl true
+  def handle_info(%Phoenix.Socket.Broadcast{topic: topic}, socket) do
+    require Logger
+
+    Logger.info(
+      "DESK GOT #{topic} actions=#{inspect(socket.assigns.board && stage_actions(socket.assigns.board) |> length())}"
+    )
+
+    {:noreply, load(socket)}
+  end
 
   @impl true
   def handle_params(params, _uri, socket) do
@@ -29,6 +41,7 @@ defmodule AgencyWeb.ListingLive do
     {:noreply,
      socket
      |> assign(listings: listings, agency_agreement_id: agency_agreement_id)
+     |> assign_new(:signing?, fn -> false end)
      |> load()}
   end
 
@@ -37,98 +50,83 @@ defmodule AgencyWeb.ListingLive do
     {:noreply, push_patch(socket, to: ~p"/listings/#{id}")}
   end
 
-  def handle_event("receive_document", %{"kind" => kind}, socket) do
-    gate_id = Workflows.compliance_gate_id(socket.assigns.board.workflows.engagement_id)
-    signal!(gate_id, "document.#{kind}", %{})
+  def handle_event("sign_listing", _params, socket) do
+    {:noreply, assign(socket, signing?: !socket.assigns.signing?)}
+  end
 
-    {:noreply, load(socket)}
+  def handle_event("start_listing", params, socket) do
+    agreement = Sale.sign_listing!(params)
+
+    {:noreply,
+     socket
+     |> assign(signing?: false)
+     |> push_patch(to: ~p"/listings/#{agreement.id}")}
+  end
+
+  def handle_event("receive_document", %{"kind" => kind}, socket) do
+    instruct(socket, fn -> Sale.hand_over_document!(listing(socket), kind) end)
   end
 
   def handle_event("launch_campaign", _params, socket) do
-    campaign_id = socket.assigns.board.workflows.campaign_id
-    signal!(campaign_id, "campaign.outcome", %{decision: :proceed})
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.launch_campaign!(listing(socket)) end)
   end
 
   def handle_event("withdraw_listing", _params, socket) do
-    campaign_id = socket.assigns.board.workflows.campaign_id
-    signal!(campaign_id, "campaign.outcome", %{decision: :withdrawn})
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.withdraw_listing!(listing(socket)) end)
   end
 
   def handle_event("re_approach", %{"buyer_id" => buyer_id}, socket) do
-    board = socket.assigns.board
-
-    signal!(attempt_workflow_id(board), "succession.decision", %{
-      decision: :re_approach,
-      buyer_id: buyer_id
-    })
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.re_approach!(listing(socket), buyer_id) end)
   end
 
   def handle_event("relaunch_campaign", _params, socket) do
-    board = socket.assigns.board
-    signal!(attempt_workflow_id(board), "succession.decision", %{decision: :relaunch})
+    instruct(socket, fn -> Sale.relaunch_campaign!(listing(socket)) end)
+  end
+
+  def handle_event("receive_offer", params, socket) do
+    Sale.receive_offer!(Map.put(params, "agency_agreement_id", listing(socket)))
 
     {:noreply, load(socket)}
   end
 
   def handle_event("close_offers", _params, socket) do
-    signal!(set_date_id(socket.assigns.board), "set_date.offers_close", %{})
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.close_offers!(listing(socket)) end)
   end
 
   def handle_event("select_offer", %{"offer_id" => offer_id}, socket) do
-    signal!(set_date_id(socket.assigns.board), "set_date.vendor_selection", %{offer_id: offer_id})
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.select_offer!(listing(socket), offer_id) end)
   end
 
   def handle_event("accept_offer", %{"offer_id" => offer_id}, socket) do
-    respond(socket, offer_id, %{decision: :accept})
+    instruct(socket, fn -> Sale.respond_to_offer!(offer_id, :accept) end)
   end
 
   def handle_event("counter_offer", %{"offer_id" => offer_id, "amount" => amount}, socket) do
     case Integer.parse(amount) do
-      {dollars, _rest} -> respond(socket, offer_id, %{decision: :counter, amount: dollars * 100})
-      :error -> {:noreply, socket}
+      {dollars, _rest} ->
+        instruct(socket, fn ->
+          Sale.respond_to_offer!(offer_id, :counter, %{amount: dollars * 100})
+        end)
+
+      :error ->
+        {:noreply, socket}
     end
   end
 
   def handle_event("withdraw_offer", %{"offer_id" => offer_id}, socket) do
-    respond(socket, offer_id, %{decision: :withdraw})
+    instruct(socket, fn -> Sale.respond_to_offer!(offer_id, :withdraw) end)
   end
 
   def handle_event("sold_under_the_hammer", _params, socket) do
-    board = socket.assigns.board
-    offer = Enum.find(board.offers, &(&1.status == :live))
-
-    signal!(auction_id(board), "auction.hammer", %{
-      result: :sold,
-      buyer_id: offer.buyer_id,
-      offer_id: offer.id,
-      price: offer.amount
-    })
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.sell_under_the_hammer!(listing(socket)) end)
   end
 
   def handle_event("passed_in", _params, socket) do
-    signal!(auction_id(socket.assigns.board), "auction.hammer", %{result: :passed_in})
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.pass_in!(listing(socket)) end)
   end
 
   def handle_event("rescind", %{"buyer_id" => buyer_id}, socket) do
-    board = socket.assigns.board
-    attempt_id = Map.fetch!(board.workflows.attempt_workflow_ids, board.attempt.id)
-    signal!(attempt_id, "cooling_off.rescission", %{buyer_id: buyer_id})
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.rescind!(listing(socket), buyer_id) end)
   end
 
   def handle_event("finance_approved", _params, socket), do: move_finance(socket, :approved)
@@ -142,81 +140,40 @@ defmodule AgencyWeb.ListingLive do
   def handle_event("title_encumbered", _params, socket), do: move_title(socket, :encumbered)
 
   def handle_event("settle", _params, socket) do
-    board = socket.assigns.board
-    Pexa.move!(board.contract.id, :settled)
-    nudge(attempt_workflow_id(board))
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.settle_contract!(socket.assigns.board.contract.id) end)
   end
 
   def handle_event("buyer_defaults", _params, socket) do
-    board = socket.assigns.board
-    Pexa.move!(board.contract.id, :defaulted)
-    nudge(attempt_workflow_id(board))
-
-    {:noreply, load(socket)}
-  end
-
-  defp respond(socket, offer_id, payload) do
-    board = socket.assigns.board
-    negotiation_id = Map.fetch!(board.workflows.negotiations, offer_id)
-    signal!(negotiation_id, "negotiation.response", payload)
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.buyer_defaults!(socket.assigns.board.contract.id) end)
   end
 
   defp move_finance(socket, decision) do
-    board = socket.assigns.board
-    Lender.move!(board.contract.id, decision)
-    nudge(conditions_id(board))
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.record_finance!(socket.assigns.board.contract.id, decision) end)
   end
 
   defp move_title(socket, decision) do
-    board = socket.assigns.board
-    Titles.move!(board.contract.id, decision)
-    nudge(conditions_id(board))
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.record_title!(socket.assigns.board.contract.id, decision) end)
   end
 
   defp resolve_inspection(socket, decision) do
-    board = socket.assigns.board
-    signal!(conditions_id(board), "condition.inspection", %{decision: decision})
-
-    {:noreply, load(socket)}
+    instruct(socket, fn -> Sale.resolve_inspection!(listing(socket), decision) end)
   end
 
-  defp set_date_id(board),
-    do: Workflows.method_workflow_id(attempt_workflow_id(board), :set_date)
+  defp listing(socket), do: socket.assigns.agency_agreement_id
 
-  defp auction_id(board), do: Workflows.method_workflow_id(attempt_workflow_id(board), :auction)
-  defp conditions_id(board), do: Workflows.conditions_id(attempt_workflow_id(board))
+  # An instruction that cannot land is the agent's news, not a dead page: the desk says so and
+  # stays up, because the run it was meant for is still there to try again.
+  defp instruct(socket, instruction) do
+    instruction.()
 
-  defp attempt_workflow_id(board),
-    do: Map.fetch!(board.workflows.attempt_workflow_ids, board.attempt.id)
+    {:noreply, load(socket)}
+  rescue
+    error ->
+      {:noreply, socket |> put_flash(:error, Exception.message(error)) |> load()}
+  end
 
   defp listing_id_of(nil), do: nil
   defp listing_id_of(listing), do: listing.id
-
-  defp signal!(workflow_id, name, payload) do
-    {:ok, _signal} = Magma.signal(workflow_id, name, payload)
-    advance()
-  end
-
-  @doc false
-  def advance do
-    Enum.each(1..3, fn _pass ->
-      Oban.drain_queue(queue: :compliance, with_recursion: true)
-      Oban.drain_queue(queue: :sales, with_recursion: true)
-    end)
-  end
-
-  defp nudge(workflow_id) do
-    Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow_id}})
-    advance()
-  end
 
   defp load(socket) do
     case socket.assigns.agency_agreement_id do
@@ -270,10 +227,6 @@ defmodule AgencyWeb.ListingLive do
 
   defp status_pill(stage), do: {"act", stage_label(stage)}
 
-  defp method_label(:auction), do: "Auction"
-  defp method_label(:set_date), do: "Set date sale"
-  defp method_label(:treaty), do: "Private treaty"
-
   defp method_stage_word(:auction), do: "Auction"
   defp method_stage_word(:set_date), do: "Offers"
   defp method_stage_word(:treaty), do: "Negotiating"
@@ -307,27 +260,6 @@ defmodule AgencyWeb.ListingLive do
     end
   end
 
-  defp commission_totals(board) do
-    commissions =
-      [board.commission | Enum.map(board.history, & &1.commission)] |> Enum.reject(&is_nil/1)
-
-    deposits = [board.deposit | Enum.map(board.history, & &1.deposit)] |> Enum.reject(&is_nil/1)
-
-    %{
-      paid:
-        commissions
-        |> Enum.filter(&(&1.outcome == :disbursed))
-        |> Enum.map(& &1.amount)
-        |> Enum.sum(),
-      written_back:
-        commissions
-        |> Enum.filter(&(&1.outcome == :written_back))
-        |> Enum.map(& &1.amount)
-        |> Enum.sum(),
-      forfeited: deposits |> Enum.map(&(&1.forfeited_amount || 0)) |> Enum.sum()
-    }
-  end
-
   defp commission_hero(nil, board) do
     estimate = Sale.Money.commission(board.agreement.guide_price, board.agreement.commission_rate)
     {Board.money(estimate), "Estimated at the guide price"}
@@ -353,18 +285,9 @@ defmodule AgencyWeb.ListingLive do
 
   defp requirements(board) do
     Enum.map(board.required_documents, fn kind ->
-      {kind, document_label(kind), MapSet.member?(board.received_documents, kind)}
+      {kind, Sale.DocumentKind.label(kind), MapSet.member?(board.received_documents, kind)}
     end)
   end
-
-  defp document_label(:contract), do: "Contract of sale prepared"
-  defp document_label(:title_search), do: "Title search"
-  defp document_label(:drainage_diagram), do: "Drainage diagram"
-  defp document_label(:planning_certificate), do: "Planning certificate"
-  defp document_label(:vendor_statement), do: "Vendor statement"
-  defp document_label(:statement_of_information), do: "Statement of information"
-  defp document_label(:form_6), do: "Form 6 appointment"
-  defp document_label(:seller_disclosure), do: "Seller disclosure statement"
 
   defp cooling_policy(board), do: Sale.Jurisdiction.cooling_off(board.property.jurisdiction)
 
@@ -388,27 +311,45 @@ defmodule AgencyWeb.ListingLive do
 
   defp headline(board), do: {Board.money(board.contract.price), "under contract"}
 
-  defp jurisdiction_label(:nsw), do: "New South Wales"
-  defp jurisdiction_label(:vic), do: "Victoria"
-  defp jurisdiction_label(:qld), do: "Queensland"
-
   defp listing_stage(agency_agreement_id), do: Board.load(agency_agreement_id).stage
+
+  defp jurisdictions,
+    do: Sale.Jurisdiction.values() |> Enum.map(&{&1, Sale.Jurisdiction.label(&1)})
+
+  defp sale_methods, do: Sale.SaleMethod.values() |> Enum.map(&{&1, Sale.SaleMethod.label(&1)})
 
   @impl true
   def render(assigns) do
     ~H"""
-    <div :if={@board == nil} class="main">
-      <p class="empty">
-        No listings yet. Run <code>mix agency.seed</code> to create some.
-      </p>
-    </div>
-
-    <div :if={@board != nil} class="shell">
+    <div class="shell">
       <nav class="rail">
         <div class="rail-head">
           <span class="eyebrow">My listings</span>
-          <span class="eyebrow">{length(@listings)}</span>
+          <button class="sign" phx-click="sign_listing">
+            {if @signing?, do: "Cancel", else: "+ New"}
+          </button>
         </div>
+
+        <form :if={@signing?} id="new-listing" class="newform" phx-submit="start_listing">
+          <input name="address" placeholder="Address" required />
+          <input name="suburb" placeholder="Suburb" required />
+          <select name="jurisdiction">
+            <option :for={{value, label} <- jurisdictions()} value={value}>{label}</option>
+          </select>
+          <select name="sale_method">
+            <option :for={{value, label} <- sale_methods()} value={value}>{label}</option>
+          </select>
+          <input name="vendor_name" placeholder="Vendor" required />
+          <input
+            name="guide_price_dollars"
+            placeholder="Guide price"
+            inputmode="numeric"
+            required
+          />
+          <input name="commission_rate" value="2.2" aria-label="Commission rate" />
+          <button class="do key" type="submit">Sign and put to market</button>
+        </form>
+
         <div>
           <button
             :for={listing <- @listings}
@@ -417,7 +358,7 @@ defmodule AgencyWeb.ListingLive do
             phx-value-id={listing.id}
           >
             <div class="addr">{listing.property.address}</div>
-            <div class="sub">{listing.property.suburb} &middot; {String.upcase(to_string(listing.property.jurisdiction))} &middot; {method_label(listing.sale_method)}</div>
+            <div class="sub">{listing.property.suburb} &middot; {String.upcase(to_string(listing.property.jurisdiction))} &middot; {Sale.SaleMethod.label(listing.sale_method)}</div>
             <div class="foot">
               <span class="amt">{Board.money(listing.guide_price)} guide</span>
               <% {pill_class, pill_text} = status_pill(listing_stage(listing.id)) %>
@@ -427,11 +368,17 @@ defmodule AgencyWeb.ListingLive do
         </div>
       </nav>
 
-      <main class="main">
+      <main :if={@board == nil} class="main">
+        <p class="empty">
+          No listings yet. Sign one on the left, or run <code>mix agency.seed</code>.
+        </p>
+      </main>
+
+      <main :if={@board != nil} class="main">
         <div class="lh">
           <div>
             <div class="eyebrow">
-              {@board.property.suburb} &middot; {jurisdiction_label(@board.property.jurisdiction)} &middot; {method_label(@board.agreement.sale_method)}
+              {@board.property.suburb} &middot; {Sale.Jurisdiction.label(@board.property.jurisdiction)} &middot; {Sale.SaleMethod.label(@board.agreement.sale_method)}
             </div>
             <h1>{@board.property.address}</h1>
             <div class="meta">
@@ -483,7 +430,7 @@ defmodule AgencyWeb.ListingLive do
           <div class="chk">
             <div :for={condition <- @board.conditions} class={["item", condition.status != :pending && "on"]}>
               <span class="box">{if condition.status == :pending, do: "[ ]", else: "[x]"}</span>
-              <span class="lb">{condition_kind_label(condition.kind)}</span>
+              <span class="lb">{Sale.ConditionKind.label(condition.kind)}</span>
             </div>
           </div>
         </div>
@@ -504,7 +451,7 @@ defmodule AgencyWeb.ListingLive do
         </div>
       </main>
 
-      <aside class="aside">
+      <aside :if={@board != nil} class="aside">
         <div class="asec">
           <header>
             <span class="eyebrow">Your commission</span>
@@ -515,12 +462,11 @@ defmodule AgencyWeb.ListingLive do
             <div class="big">{hero_amount}</div>
             <div class="cap">{hero_caption}</div>
           </div>
-          <% totals = commission_totals(@board) %>
           <div class="row"><span class="k">Sale price</span><span class="v">{(@board.contract && Board.money(@board.contract.price)) || "—"}</span></div>
           <div class="row"><span class="k">Deposit in trust</span><span class="v">{(@board.deposit && @board.deposit.status == :held && Board.money(@board.deposit.amount)) || "—"}</span></div>
-          <div class="row"><span class="k">Paid to date</span><span class="v ok">{if totals.paid > 0, do: Board.money(totals.paid), else: "—"}</span></div>
-          <div class="row"><span class="k">Written back</span><span class="v bad">{if totals.written_back > 0, do: Board.money(totals.written_back), else: "—"}</span></div>
-          <div class="row"><span class="k">Forfeited to vendor</span><span class="v bad">{if totals.forfeited > 0, do: Board.money(totals.forfeited), else: "—"}</span></div>
+          <div class="row"><span class="k">Paid to date</span><span class="v ok">{if @board.totals.paid > 0, do: Board.money(@board.totals.paid), else: "—"}</span></div>
+          <div class="row"><span class="k">Written back</span><span class="v bad">{if @board.totals.written_back > 0, do: Board.money(@board.totals.written_back), else: "—"}</span></div>
+          <div class="row"><span class="k">Forfeited to vendor</span><span class="v bad">{if @board.totals.forfeited > 0, do: Board.money(@board.totals.forfeited), else: "—"}</span></div>
         </div>
 
         <div class="asec">
@@ -571,10 +517,6 @@ defmodule AgencyWeb.ListingLive do
   defp payable_word(:on_settlement), do: "on settlement"
   defp payable_word(:on_unconditional), do: "on unconditional"
 
-  defp condition_kind_label(:finance), do: "Finance"
-  defp condition_kind_label(:inspection), do: "Building & pest"
-  defp condition_kind_label(:title), do: "Title"
-
   defp forfeit_clause(%{forfeit: forfeit}) when is_integer(forfeit) and forfeit > 0,
     do: " — #{Board.money(forfeit)} forfeited"
 
@@ -604,6 +546,18 @@ defmodule AgencyWeb.ListingLive do
         <div :if={stage_actions(@board) != []} class="acts">
           {stage_action_buttons(assigns)}
         </div>
+
+        <form
+          :if={@board.stage in [:offers_open, :auction_day, :negotiating]}
+          id="new-offer"
+          class="offerform"
+          phx-submit="receive_offer"
+        >
+          <input name="buyer_name" placeholder="Buyer" required />
+          <input name="lender" placeholder="Lender, or cash" />
+          <input name="amount_dollars" placeholder="Offer" inputmode="numeric" required />
+          <button class="do" type="submit">Take the offer</button>
+        </form>
       </div>
     </div>
     """
@@ -667,16 +621,26 @@ defmodule AgencyWeb.ListingLive do
 
   defp stage_actions(%{stage: :prep} = board) do
     board.required_documents
-    |> Enum.reject(&MapSet.member?(board.received_documents, &1))
+    |> Enum.filter(&awaited?(board, &1))
     |> Enum.map(
       &%{
-        label: "#{document_label(&1)} received",
+        label: "#{Sale.DocumentKind.label(&1)} received",
         event: "receive_document",
         values: %{"kind" => &1},
         key: false,
         danger: false
       }
     )
+  end
+
+  # The gate is the authority on which document it is waiting for, and it takes them one at a
+  # time, so what the agent is offered is what the gate can presently accept.
+  defp awaited?(%{workflows: %{engagement_id: nil}}, _kind), do: false
+
+  defp awaited?(%{workflows: %{engagement_id: engagement_id}}, kind) do
+    engagement_id
+    |> Sale.Runs.compliance_gate_id()
+    |> Sale.Runs.waiting_on?("document.#{kind}")
   end
 
   defp stage_actions(%{stage: :marketing}) do
@@ -714,6 +678,7 @@ defmodule AgencyWeb.ListingLive do
   defp stage_actions(%{stage: :offers_in} = board) do
     board.offers
     |> Enum.filter(&(&1.status in [:live, :countered]))
+    |> Enum.filter(&Map.has_key?(board.workflows.negotiations, &1.id))
     |> Enum.flat_map(&offer_actions(board, &1))
   end
 
@@ -848,7 +813,7 @@ defmodule AgencyWeb.ListingLive do
               values: %{},
               key: false,
               danger: false,
-              group: condition_kind_label(kind)
+              group: Sale.ConditionKind.label(kind)
             },
             %{
               label: bad_label,
@@ -856,7 +821,7 @@ defmodule AgencyWeb.ListingLive do
               values: %{},
               key: false,
               danger: true,
-              group: condition_kind_label(kind)
+              group: Sale.ConditionKind.label(kind)
             }
           ]
 

@@ -67,8 +67,35 @@ defmodule Agency.Sale.Offer do
       ])
     end
 
+    create :receive do
+      description("Records an offer the agent was given, registering the buyer if they are new.")
+      argument(:agency_agreement_id, :uuid_v7, allow_nil?: false)
+      argument(:buyer_name, :string, allow_nil?: false)
+      argument(:lender, :string)
+      argument(:amount_dollars, :integer, allow_nil?: false)
+
+      change(Agency.Sale.Offer.FromTheDesk)
+    end
+
     update :set_status do
       accept([:status])
+    end
+
+    update :respond do
+      description("Answers the buyer: accept the offer, counter it, or walk away.")
+      require_atomic?(false)
+
+      argument(:decision, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:accept, :counter, :withdraw]]
+      )
+
+      argument(:amount, :integer)
+
+      change(
+        {Agency.Sale.Changes.Tell,
+         to: :negotiation, signal: "negotiation.response", from_arguments: [:decision, :amount]}
+      )
     end
   end
 end

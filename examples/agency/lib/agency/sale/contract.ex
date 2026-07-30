@@ -39,5 +39,40 @@ defmodule Agency.Sale.Contract do
     update :go_unconditional do
       accept([:unconditional_at])
     end
+
+    update :record_finance do
+      description("Moves the lender's answer on the buyer's finance, and lets the sale notice.")
+      require_atomic?(false)
+      argument(:decision, :atom, allow_nil?: false, constraints: [one_of: [:approved, :declined]])
+
+      change({Agency.Sale.Contract.Wake, move: {Agency.Lender, :move!}, to: :conditions})
+    end
+
+    update :record_title do
+      description("Moves what the title office found, and lets the sale notice.")
+      require_atomic?(false)
+      argument(:decision, :atom, allow_nil?: false, constraints: [one_of: [:clear, :encumbered]])
+
+      change({Agency.Sale.Contract.Wake, move: {Agency.Titles, :move!}, to: :conditions})
+    end
+
+    update :settle do
+      description("Settles the contract in PEXA, and lets the sale notice.")
+      require_atomic?(false)
+
+      change(
+        {Agency.Sale.Contract.Wake, move: {Agency.Pexa, :move!}, decision: :settled, to: :attempt}
+      )
+    end
+
+    update :buyer_defaults do
+      description("Records that the buyer failed to settle, and lets the sale notice.")
+      require_atomic?(false)
+
+      change(
+        {Agency.Sale.Contract.Wake,
+         move: {Agency.Pexa, :move!}, decision: :defaulted, to: :attempt}
+      )
+    end
   end
 end

@@ -43,4 +43,10 @@ defmodule Agency.Sale.Engagement do
   end
 
   return(:engagement)
+
+  @doc "Puts an agreement to work, which is what makes a signed listing a live one."
+  @spec start(Ash.Resource.record()) :: {:ok, Ash.Resource.record()} | {:error, term()}
+  def start(agreement) do
+    Magma.start(__MODULE__, %{agency_agreement_id: agreement.id}, queue: :sales)
+  end
 end

@@ -9,7 +9,7 @@ defmodule AgencyWeb.ListingLiveTest do
 
   defp the_sale_workflow(agreement) do
     agreement.id
-    |> AgencyWeb.ListingLive.Workflows.engagement_id()
+    |> Agency.Sale.Runs.engagement_id()
     |> Magma.child_id(:campaign)
     |> Magma.child_id(:sale_attempt)
   end
@@ -85,6 +85,59 @@ defmodule AgencyWeb.ListingLiveTest do
     assert html =~ "mix agency.seed"
   end
 
+  defp sign_on_the_desk(view, attrs) do
+    view |> element("button[phx-click='sign_listing']") |> render_click()
+    run_agency()
+
+    view |> form("#new-listing", attrs) |> render_submit()
+  end
+
+  test "an agent can sign a listing on an empty desk and lands on it", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    sign_on_the_desk(view, %{
+      address: "3 Blake Street",
+      suburb: "Hawthorn",
+      jurisdiction: "vic",
+      sale_method: "auction",
+      vendor_name: "R. Ellis",
+      guide_price_dollars: "1100000",
+      commission_rate: "2.4"
+    })
+
+    signed = listing_named("3 Blake Street")
+
+    assert_patch(view, ~p"/listings/#{signed.id}")
+
+    html = render(view)
+
+    assert html =~ "3 Blake Street"
+    assert html =~ "Hawthorn"
+    assert html =~ "2.4%"
+    assert html =~ "$1,100,000"
+  end
+
+  test "a listing signed on the desk starts at its jurisdiction's compliance gate",
+       %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    sign_on_the_desk(view, %{
+      address: "3 Blake Street",
+      suburb: "Hawthorn",
+      jurisdiction: "vic",
+      sale_method: "auction",
+      vendor_name: "R. Ellis",
+      guide_price_dollars: "1100000",
+      commission_rate: "2.2"
+    })
+
+    html = render(view)
+
+    assert html =~ "Vendor statement"
+    assert html =~ "Statement of information"
+    refute html =~ "Drainage diagram"
+  end
+
   test "each seeded listing shows a distinct state of its own", %{conn: conn} do
     seed()
 
@@ -117,10 +170,11 @@ defmodule AgencyWeb.ListingLiveTest do
     assert html =~ "Cash purchase"
     assert html =~ "Finance through Meridian Bank"
 
-    html =
-      view
-      |> element("button[phx-click='re_approach']", "Choudhury")
-      |> render_click()
+    view
+    |> element("button[phx-click='re_approach']", "Choudhury")
+    |> render_click()
+
+    html = acted(view)
 
     assert html =~ "Negotiating"
     refute html =~ "Re-approach the underbidders"
@@ -132,7 +186,9 @@ defmodule AgencyWeb.ListingLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/listings/#{marine.id}")
 
-    html = view |> element("button[phx-click='relaunch_campaign']") |> render_click()
+    view |> element("button[phx-click='relaunch_campaign']") |> render_click()
+
+    html = acted(view)
 
     assert html =~ "Ready to go to market"
     assert html =~ "Launch the campaign"
@@ -147,7 +203,9 @@ defmodule AgencyWeb.ListingLiveTest do
     assert html =~ "Danforth"
     refute html =~ "Nakagawa"
 
-    html = view |> element("button[phx-value-id='#{rialto.id}']") |> render_click()
+    view |> element("button[phx-value-id='#{rialto.id}']") |> render_click()
+
+    html = acted(view)
 
     assert html =~ "Nakagawa"
     refute html =~ "Danforth"
@@ -161,11 +219,13 @@ defmodule AgencyWeb.ListingLiveTest do
     refute html =~ "Accepted, awaiting the vendor"
 
     view |> element("button[phx-click='close_offers']") |> render_click()
+    run_agency()
 
-    html =
-      view
-      |> element("button[phx-click='accept_offer']", "Osei-Bright")
-      |> render_click()
+    view
+    |> element("button[phx-click='accept_offer']", "Osei-Bright")
+    |> render_click()
+
+    html = acted(view)
 
     assert html =~ "Accepted, awaiting the vendor"
   end
@@ -178,7 +238,9 @@ defmodule AgencyWeb.ListingLiveTest do
     {:ok, view, html} = live(conn, ~p"/listings/#{ardoyne.id}")
     assert html =~ "Whitlam rescinds during cooling off"
 
-    html = view |> element("button[phx-click='rescind']") |> render_click()
+    view |> element("button[phx-click='rescind']") |> render_click()
+
+    html = acted(view)
 
     assert html =~ "fell through"
     assert html =~ "forfeited"
@@ -194,8 +256,12 @@ defmodule AgencyWeb.ListingLiveTest do
     assert html =~ "Conditions to satisfy"
 
     view |> element("button[phx-click='finance_approved']") |> render_click()
+    run_agency()
     view |> element("button[phx-click='inspection_satisfied']") |> render_click()
-    html = view |> element("button[phx-click='title_clear']") |> render_click()
+    run_agency()
+    view |> element("button[phx-click='title_clear']") |> render_click()
+
+    html = acted(view)
 
     assert html =~ "Settlement due"
   end
@@ -206,16 +272,23 @@ defmodule AgencyWeb.ListingLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/listings/#{rialto.id}")
     view |> element("button[phx-click='sold_under_the_hammer']") |> render_click()
+    run_agency()
 
     html = repainted(view)
     assert html =~ "Conditions to satisfy"
 
     view |> element("button[phx-click='finance_approved']") |> render_click()
+    run_agency()
     view |> element("button[phx-click='inspection_satisfied']") |> render_click()
-    html = view |> element("button[phx-click='title_clear']") |> render_click()
+    run_agency()
+    view |> element("button[phx-click='title_clear']") |> render_click()
+
+    html = acted(view)
     assert html =~ "Settlement due"
 
-    html = view |> element("button[phx-click='settle']") |> render_click()
+    view |> element("button[phx-click='settle']") |> render_click()
+
+    html = acted(view)
 
     assert html =~ "Settled"
     assert html =~ "Paid "

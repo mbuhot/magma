@@ -3,6 +3,8 @@ defmodule Agency.Sale.AgencyAgreement do
 
   use Ash.Resource, domain: Agency.Sale, data_layer: AshPostgres.DataLayer
 
+  alias Agency.Sale.Changes.Tell
+
   postgres do
     table("agency_agreements")
     repo(Agency.Repo)
@@ -46,6 +48,27 @@ defmodule Agency.Sale.AgencyAgreement do
       filter(expr(id == ^arg(:id)))
     end
 
+    create :sign_listing do
+      description("Takes a listing on: the property, the agreement over it, and the sale.")
+      argument(:address, :string, allow_nil?: false)
+      argument(:suburb, :string, allow_nil?: false)
+      argument(:jurisdiction, Agency.Sale.Jurisdiction, allow_nil?: false)
+      argument(:guide_price_dollars, :integer, allow_nil?: false)
+
+      accept([
+        :vendor_name,
+        :agent_name,
+        :appointment,
+        :term_start,
+        :term_end,
+        :commission_rate,
+        :commission_trigger,
+        :sale_method
+      ])
+
+      change(Agency.Sale.AgencyAgreement.SignListing)
+    end
+
     create :sign do
       accept([
         :property_id,
@@ -59,6 +82,106 @@ defmodule Agency.Sale.AgencyAgreement do
         :sale_method,
         :guide_price
       ])
+    end
+
+    update :hand_over_document do
+      description("Tells the compliance gate that one of its documents has arrived.")
+      require_atomic?(false)
+      argument(:kind, :string, allow_nil?: false)
+
+      change({Tell, to: :gate, signal: {"document.", :kind}})
+    end
+
+    update :launch_campaign do
+      description("Takes the property to market.")
+      require_atomic?(false)
+
+      change({Tell, to: :campaign, signal: "campaign.outcome", payload: %{decision: :proceed}})
+    end
+
+    update :withdraw_listing do
+      description("Takes the property off the market for good.")
+      require_atomic?(false)
+
+      change({Tell, to: :campaign, signal: "campaign.outcome", payload: %{decision: :withdrawn}})
+    end
+
+    update :re_approach do
+      description("Calls a named underbidder back after a contract fell over.")
+      require_atomic?(false)
+      argument(:buyer_id, :uuid_v7, allow_nil?: false)
+
+      change(
+        {Tell,
+         to: :attempt,
+         signal: "succession.decision",
+         payload: %{decision: :re_approach},
+         from_arguments: [:buyer_id]}
+      )
+    end
+
+    update :relaunch_campaign do
+      description("Puts the property back on the market as a fresh campaign.")
+      require_atomic?(false)
+
+      change({Tell, to: :attempt, signal: "succession.decision", payload: %{decision: :relaunch}})
+    end
+
+    update :close_offers do
+      description("Closes the window a set date sale invited offers in.")
+      require_atomic?(false)
+
+      change({Tell, to: {:method, :set_date}, signal: "set_date.offers_close"})
+    end
+
+    update :select_offer do
+      description("Carries the vendor's choice of offer to the sale.")
+      require_atomic?(false)
+      argument(:offer_id, :uuid_v7, allow_nil?: false)
+
+      change(
+        {Tell,
+         to: {:method, :set_date},
+         signal: "set_date.vendor_selection",
+         from_arguments: [:offer_id]}
+      )
+    end
+
+    update :pass_in do
+      description("Passes the property in, which sends the agent back to negotiating.")
+      require_atomic?(false)
+
+      change(
+        {Tell, to: {:method, :auction}, signal: "auction.hammer", payload: %{result: :passed_in}}
+      )
+    end
+
+    update :sell_under_the_hammer do
+      description("Drops the hammer on the offer standing when the auction ends.")
+      require_atomic?(false)
+
+      change(
+        {Tell,
+         to: {:method, :auction},
+         signal: "auction.hammer",
+         payload: {Agency.Sale.AgencyAgreement.Hammer, :payload}}
+      )
+    end
+
+    update :rescind do
+      description("Records that a buyer rescinded inside the cooling off window.")
+      require_atomic?(false)
+      argument(:buyer_id, :uuid_v7, allow_nil?: false)
+
+      change({Tell, to: :attempt, signal: "cooling_off.rescission", from_arguments: [:buyer_id]})
+    end
+
+    update :resolve_inspection do
+      description("Records how the building inspection came back.")
+      require_atomic?(false)
+      argument(:decision, :atom, allow_nil?: false, constraints: [one_of: [:satisfied, :failed]])
+
+      change({Tell, to: :conditions, signal: "condition.inspection", from_arguments: [:decision]})
     end
   end
 end

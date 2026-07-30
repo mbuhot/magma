@@ -7,4 +7,10 @@ defmodule Agency.Sale.SaleMethod do
       set_date: "offers are invited by a deadline",
       treaty: "negotiated privately, no set deadline"
     ]
+
+  @doc "How the kind is written on screen."
+  @spec label(atom()) :: String.t()
+  def label(:auction), do: "Auction"
+  def label(:set_date), do: "Set date sale"
+  def label(:treaty), do: "Private treaty"
 end

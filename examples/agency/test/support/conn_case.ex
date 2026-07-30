@@ -30,4 +30,17 @@ defmodule AgencyWeb.ConnCase do
 
   @doc "What a live view shows once it has taken in everything already committed."
   def repainted(view), do: Phoenix.LiveViewTest.render(view)
+
+  @doc """
+  What a live view shows once the work a click started has run.
+
+  The queues are worked by Oban itself in a deployment, and the page repaints on what the
+  engine publishes as it goes. A test holds the queues still, so it runs them itself and then
+  reads the page the way the browser would have.
+  """
+  def acted(view) do
+    Agency.DataCase.run_agency()
+
+    repainted(view)
+  end
 end

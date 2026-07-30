@@ -4,6 +4,10 @@ defmodule Mix.Tasks.Agency.Seed do
   Wipes this example's tables and rebuilds four listings by driving their workflows forward to
   a deliberately parked wait, so the sales desk and console both open with the branching already
   visible.
+
+  The queues are held still in this task's own node while it runs: seeding drives the engine
+  itself, step by step, and a queue working in parallel would race it. A server running
+  alongside keeps working.
   """
 
   use Mix.Task
@@ -16,6 +20,7 @@ defmodule Mix.Tasks.Agency.Seed do
 
     Mix.Task.run("app.start")
     Application.put_env(:magma, :block_ms, 0)
+    Oban.pause_all_queues(local_only: true)
 
     Agency.Seeds.reset!()
     Agency.Seeds.seed!()

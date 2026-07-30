@@ -14,7 +14,7 @@ config :agency, Agency.Repo,
 
 config :agency, Oban,
   repo: Agency.Repo,
-  queues: []
+  queues: [compliance: 1, sales: 1]
 
 config :agency, AgencyWeb.Endpoint,
   url: [host: "localhost"],
@@ -29,6 +29,12 @@ config :agency, AgencyWeb.Endpoint,
 config :phoenix, :json_library, Jason
 
 config :logger, level: :info
+
+if config_env() == :dev do
+  config :agency, cooling_off_day_ms: 6_000
+  config :agency, poll_interval_ms: 3_000
+  config :agency, offer_response_window_ms: :timer.minutes(30)
+end
 
 if config_env() == :test do
   config :agency, Agency.Repo, pool: Ecto.Adapters.SQL.Sandbox

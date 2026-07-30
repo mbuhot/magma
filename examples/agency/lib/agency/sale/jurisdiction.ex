@@ -10,6 +10,10 @@ defmodule Agency.Sale.Jurisdiction do
 
   alias Agency.Sale.Jurisdiction.Policy
 
+  @doc "The state's name, as it is written on the listing."
+  @spec label(atom()) :: String.t()
+  def label(jurisdiction), do: description(jurisdiction)
+
   @doc "The pre-marketing gate reactor for a dispatch's jurisdiction argument."
   @spec gate_for(map(), map()) :: module()
   def gate_for(%{jurisdiction: :nsw}, _context), do: Agency.Sale.Jurisdiction.NSW.Gate

@@ -81,6 +81,25 @@ defmodule AgencyWeb.Layouts do
     padding: 13px 16px 11px; border-bottom: 1px solid var(--rule);
     display: flex; justify-content: space-between; align-items: baseline;
   }
+  button.sign {
+    font-family: var(--f-data); font-size: 10px; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 3px 7px; border-radius: 2px;
+    border: 1px solid var(--rule); background: none; color: var(--ink-3); cursor: pointer;
+  }
+  button.sign:hover { border-color: var(--accent); color: var(--accent); }
+  .newform {
+    display: flex; flex-direction: column; gap: 7px;
+    padding: 13px 15px; border-bottom: 1px solid var(--rule); background: var(--paper);
+  }
+  .newform input, .newform select {
+    font: inherit; font-size: 13.5px; padding: 7px 9px; width: 100%;
+    border: 1px solid var(--rule); border-radius: 2px;
+    background: var(--surface); color: var(--ink);
+  }
+  .newform input:focus-visible, .newform select:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: -1px;
+  }
+  .newform button.do { text-align: center; margin-top: 2px; }
   .lst {
     display: block; width: 100%; text-align: left; background: none;
     border: none; border-bottom: 1px solid var(--rule-2); border-left: 3px solid transparent;
@@ -151,6 +170,13 @@ defmodule AgencyWeb.Layouts do
   .tbl tr.win { background: var(--accent-wash); }
   .tblwrap { overflow-x: auto; }
   .acts { display: flex; flex-direction: column; gap: 8px; }
+  .offerform { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .offerform input {
+    font: inherit; font-size: 13.5px; padding: 8px 10px; flex: 1; min-width: 120px;
+    border: 1px solid var(--rule); border-radius: 2px;
+    background: var(--surface); color: var(--ink);
+  }
+  .offerform button.do { width: auto; text-align: center; }
   button.do {
     font: inherit; font-size: 14px; text-align: left; padding: 10px 13px;
     border: 1px solid var(--rule); background: var(--paper); color: var(--ink);
@@ -273,6 +299,7 @@ defmodule AgencyWeb.Layouts do
             params: {_csrf_token: token}
           })
           socket.connect()
+          window.liveSocket = socket
         </script>
       </head>
       <body>

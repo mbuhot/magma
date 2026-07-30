@@ -17,6 +17,18 @@ defmodule Agency.Sale do
 
     resource Agency.Sale.AgencyAgreement do
       define(:sign_agreement, action: :sign)
+      define(:sign_listing, action: :sign_listing)
+      define(:hand_over_document, action: :hand_over_document, get_by: [:id], args: [:kind])
+      define(:launch_campaign, action: :launch_campaign, get_by: [:id])
+      define(:withdraw_listing, action: :withdraw_listing, get_by: [:id])
+      define(:re_approach, action: :re_approach, get_by: [:id], args: [:buyer_id])
+      define(:relaunch_campaign, action: :relaunch_campaign, get_by: [:id])
+      define(:close_offers, action: :close_offers, get_by: [:id])
+      define(:select_offer, action: :select_offer, get_by: [:id], args: [:offer_id])
+      define(:sell_under_the_hammer, action: :sell_under_the_hammer, get_by: [:id])
+      define(:pass_in, action: :pass_in, get_by: [:id])
+      define(:rescind, action: :rescind, get_by: [:id], args: [:buyer_id])
+      define(:resolve_inspection, action: :resolve_inspection, get_by: [:id], args: [:decision])
       define(:get_agreement, action: :by_id, args: [:id])
       define(:list_agreements, action: :read)
     end
@@ -56,7 +68,9 @@ defmodule Agency.Sale do
 
     resource Agency.Sale.Offer do
       define(:make_offer, action: :make)
+      define(:receive_offer, action: :receive)
       define(:set_offer_status, action: :set_status, get_by: [:id])
+      define(:respond_to_offer, action: :respond, get_by: [:id], args: [:decision])
       define(:get_offer, action: :by_id, args: [:id])
       define(:offers_for_attempt, action: :for_attempt, args: [:sale_attempt_id])
       define(:live_offers_for_attempt, action: :live_for_attempt, args: [:sale_attempt_id])
@@ -66,6 +80,10 @@ defmodule Agency.Sale do
     resource Agency.Sale.Contract do
       define(:exchange_contract, action: :exchange)
       define(:go_unconditional, action: :go_unconditional, get_by: [:id])
+      define(:record_finance, action: :record_finance, get_by: [:id], args: [:decision])
+      define(:record_title, action: :record_title, get_by: [:id], args: [:decision])
+      define(:settle_contract, action: :settle, get_by: [:id])
+      define(:buyer_defaults, action: :buyer_defaults, get_by: [:id])
       define(:contracts_for_attempt, action: :for_attempt, args: [:sale_attempt_id])
       define(:list_contracts, action: :read)
     end

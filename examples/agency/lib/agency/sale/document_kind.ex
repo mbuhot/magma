@@ -12,4 +12,15 @@ defmodule Agency.Sale.DocumentKind do
       form_6: "the Queensland appointment form",
       seller_disclosure: "the Queensland seller disclosure statement"
     ]
+
+  @doc "How the kind is written on screen."
+  @spec label(atom()) :: String.t()
+  def label(:contract), do: "Contract of sale prepared"
+  def label(:title_search), do: "Title search"
+  def label(:drainage_diagram), do: "Drainage diagram"
+  def label(:planning_certificate), do: "Planning certificate"
+  def label(:vendor_statement), do: "Vendor statement"
+  def label(:statement_of_information), do: "Statement of information"
+  def label(:form_6), do: "Form 6 appointment"
+  def label(:seller_disclosure), do: "Seller disclosure statement"
 end
