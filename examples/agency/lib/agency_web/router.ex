@@ -6,6 +6,7 @@ defmodule AgencyWeb.Router do
   pipeline :browser do
     plug(:accepts, ["html"])
     plug(:fetch_session)
+    plug(:fetch_live_flash)
     plug(:put_root_layout, html: {AgencyWeb.Layouts, :root})
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
@@ -14,6 +15,7 @@ defmodule AgencyWeb.Router do
   scope "/", AgencyWeb do
     pipe_through(:browser)
 
-    get("/", PageController, :home)
+    live("/", ListingLive, :index)
+    live("/listings/:id", ListingLive, :show)
   end
 end

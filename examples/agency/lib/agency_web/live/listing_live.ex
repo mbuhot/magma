@@ -1,0 +1,841 @@
+defmodule AgencyWeb.ListingLive do
+  @moduledoc """
+  The agent's sales desk: one listing at a time, and whatever it is waiting on.
+
+  Every button here delivers a signal to the workflow behind the listing, or moves a lender's,
+  title office's or PEXA's state and lets the workflow notice — nothing is written straight
+  into the domain's own rows. What is offered is read fresh from those rows and from the
+  workflow's own parked waits on every render, so the screen never drifts from what actually
+  happened.
+  """
+
+  use AgencyWeb, :live_view
+
+  alias Agency.Lender
+  alias Agency.Pexa
+  alias Agency.Sale
+  alias Agency.Titles
+  alias AgencyWeb.ListingLive.Board
+  alias AgencyWeb.ListingLive.Workflows
+
+  @impl true
+  def mount(_params, _session, socket), do: {:ok, socket}
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    listings = Board.listings()
+    agency_agreement_id = params["id"] || (listings != [] && List.first(listings).id)
+
+    {:noreply,
+     socket
+     |> assign(listings: listings, agency_agreement_id: agency_agreement_id)
+     |> load()}
+  end
+
+  @impl true
+  def handle_event("select", %{"id" => id}, socket) do
+    {:noreply, push_patch(socket, to: ~p"/listings/#{id}")}
+  end
+
+  def handle_event("receive_document", %{"kind" => kind}, socket) do
+    gate_id = Workflows.compliance_gate_id(socket.assigns.board.workflows.engagement_id)
+    signal!(gate_id, "document.#{kind}", %{})
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("launch_campaign", _params, socket) do
+    engagement_id = socket.assigns.board.workflows.engagement_id
+    signal!(engagement_id, "campaign.outcome", %{decision: :proceed})
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("withdraw_listing", _params, socket) do
+    engagement_id = socket.assigns.board.workflows.engagement_id
+    signal!(engagement_id, "campaign.outcome", %{decision: :withdrawn})
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("close_offers", _params, socket) do
+    signal!(set_date_id(socket.assigns.board), "set_date.offers_close", %{})
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("select_offer", %{"offer_id" => offer_id}, socket) do
+    signal!(set_date_id(socket.assigns.board), "set_date.vendor_selection", %{offer_id: offer_id})
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("accept_offer", %{"offer_id" => offer_id}, socket) do
+    respond(socket, offer_id, %{decision: :accept})
+  end
+
+  def handle_event("counter_offer", %{"offer_id" => offer_id, "amount" => amount}, socket) do
+    case Integer.parse(amount) do
+      {dollars, _rest} -> respond(socket, offer_id, %{decision: :counter, amount: dollars * 100})
+      :error -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("withdraw_offer", %{"offer_id" => offer_id}, socket) do
+    respond(socket, offer_id, %{decision: :withdraw})
+  end
+
+  def handle_event("sold_under_the_hammer", _params, socket) do
+    board = socket.assigns.board
+    offer = Enum.find(board.offers, &(&1.status == :live))
+
+    signal!(auction_id(board), "auction.hammer", %{
+      result: :sold,
+      buyer_id: offer.buyer_id,
+      offer_id: offer.id,
+      price: offer.amount
+    })
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("passed_in", _params, socket) do
+    signal!(auction_id(socket.assigns.board), "auction.hammer", %{result: :passed_in})
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("rescind", %{"buyer_id" => buyer_id}, socket) do
+    board = socket.assigns.board
+    attempt_id = Map.fetch!(board.workflows.attempt_workflow_ids, board.attempt.id)
+    signal!(attempt_id, "cooling_off.rescission", %{buyer_id: buyer_id})
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("finance_approved", _params, socket), do: move_finance(socket, :approved)
+  def handle_event("finance_declined", _params, socket), do: move_finance(socket, :declined)
+
+  def handle_event("inspection_satisfied", _params, socket),
+    do: resolve_inspection(socket, :satisfied)
+
+  def handle_event("inspection_failed", _params, socket), do: resolve_inspection(socket, :failed)
+  def handle_event("title_clear", _params, socket), do: move_title(socket, :clear)
+  def handle_event("title_encumbered", _params, socket), do: move_title(socket, :encumbered)
+
+  def handle_event("settle", _params, socket) do
+    board = socket.assigns.board
+    Pexa.move!(board.contract.id, :settled)
+    nudge(attempt_workflow_id(board))
+
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("buyer_defaults", _params, socket) do
+    board = socket.assigns.board
+    Pexa.move!(board.contract.id, :defaulted)
+    nudge(attempt_workflow_id(board))
+
+    {:noreply, load(socket)}
+  end
+
+  defp respond(socket, offer_id, payload) do
+    board = socket.assigns.board
+    negotiation_id = Map.fetch!(board.workflows.negotiations, offer_id)
+    signal!(negotiation_id, "negotiation.response", payload)
+
+    {:noreply, load(socket)}
+  end
+
+  defp move_finance(socket, decision) do
+    board = socket.assigns.board
+    Lender.move!(board.contract.id, decision)
+    nudge(conditions_id(board))
+
+    {:noreply, load(socket)}
+  end
+
+  defp move_title(socket, decision) do
+    board = socket.assigns.board
+    Titles.move!(board.contract.id, decision)
+    nudge(conditions_id(board))
+
+    {:noreply, load(socket)}
+  end
+
+  defp resolve_inspection(socket, decision) do
+    board = socket.assigns.board
+    signal!(conditions_id(board), "condition.inspection", %{decision: decision})
+
+    {:noreply, load(socket)}
+  end
+
+  defp set_date_id(board),
+    do: Workflows.method_workflow_id(attempt_workflow_id(board), :set_date)
+
+  defp auction_id(board), do: Workflows.method_workflow_id(attempt_workflow_id(board), :auction)
+  defp conditions_id(board), do: Workflows.conditions_id(attempt_workflow_id(board))
+
+  defp attempt_workflow_id(board),
+    do: Map.fetch!(board.workflows.attempt_workflow_ids, board.attempt.id)
+
+  defp signal!(workflow_id, name, payload) do
+    {:ok, _signal} = Magma.signal(workflow_id, name, payload)
+    advance()
+  end
+
+  @doc false
+  def advance do
+    Enum.each(1..3, fn _pass ->
+      Oban.drain_queue(queue: :compliance, with_recursion: true)
+      Oban.drain_queue(queue: :sales, with_recursion: true)
+    end)
+  end
+
+  defp nudge(workflow_id) do
+    Magma.Worker.perform(%Oban.Job{args: %{"workflow_id" => workflow_id}})
+    advance()
+  end
+
+  defp load(socket) do
+    case socket.assigns.agency_agreement_id do
+      nil -> assign(socket, board: nil, page_title: "Sales desk")
+      id -> assign(socket, board: Board.load(id), page_title: "Sales desk")
+    end
+  end
+
+  defp buyer_position(buyer, board) do
+    offer = Enum.find(board.offers, &(&1.buyer_id == buyer.id))
+    label = position_label(buyer.register_status, offer)
+    {label, offer}
+  end
+
+  defp position_label(:missed, _offer), do: "Not selected"
+  defp position_label(:withdrew, _offer), do: "Withdrew"
+  defp position_label(:rescinded, _offer), do: "Rescinded during cooling off"
+  defp position_label(:defaulted, _offer), do: "Defaulted at settlement"
+  defp position_label(:under_contract, _offer), do: "Holds the contract"
+  defp position_label(:available, nil), do: "On the register"
+  defp position_label(:available, %{status: :live}), do: "Offer on the table"
+  defp position_label(:available, %{status: :countered}), do: "Countered, awaiting a reply"
+
+  defp position_label(:available, %{status: :accepted}),
+    do: "Accepted, awaiting the vendor's final choice"
+
+  defp position_label(:available, %{status: :missed}), do: "Not selected"
+  defp position_label(:available, %{status: :lapsed}), do: "Offer lapsed"
+  defp position_label(:available, %{status: :withdrawn}), do: "Withdrew"
+  defp position_label(:available, %{status: :superseded}), do: "Countered, waiting on a reply"
+
+  defp stage_label(:prep), do: "Preparing"
+  defp stage_label(:marketing), do: "On market"
+  defp stage_label(:offers_open), do: "Offers open"
+  defp stage_label(:offers_in), do: "Offers in"
+  defp stage_label(:auction_day), do: "Auction"
+  defp stage_label(:negotiating), do: "Negotiating"
+  defp stage_label(:cooling), do: "Cooling off"
+  defp stage_label(:conditions), do: "Conditions"
+  defp stage_label(:awaiting_settlement), do: "Awaiting settlement"
+  defp stage_label(:settled), do: "Settled"
+  defp stage_label(:lapsed), do: "Ended"
+
+  defp status_pill(:settled), do: {"ok", "Settled"}
+  defp status_pill(:lapsed), do: {"bad", "Ended"}
+
+  defp status_pill(stage) when stage in [:cooling, :conditions, :awaiting_settlement],
+    do: {"ok", "Under contract"}
+
+  defp status_pill(stage), do: {"act", stage_label(stage)}
+
+  defp method_label(:auction), do: "Auction"
+  defp method_label(:set_date), do: "Set date sale"
+  defp method_label(:treaty), do: "Private treaty"
+
+  defp method_stage_word(:auction), do: "Auction"
+  defp method_stage_word(:set_date), do: "Offers"
+  defp method_stage_word(:treaty), do: "Negotiating"
+
+  defp progress_steps(board) do
+    method = board.agreement.sale_method
+    ["Prepared", method_stage_word(method), "Exchanged", "Cooling off", "Conditions", "Settled"]
+  end
+
+  defp progress_index(:prep), do: 0
+  defp progress_index(:marketing), do: 1
+
+  defp progress_index(stage) when stage in [:offers_open, :offers_in, :auction_day, :negotiating],
+    do: 1
+
+  defp progress_index(:cooling), do: 3
+  defp progress_index(:conditions), do: 4
+  defp progress_index(:awaiting_settlement), do: 4
+  defp progress_index(:settled), do: 5
+  defp progress_index(:lapsed), do: 1
+
+  defp progress_status(stage, index) do
+    at = progress_index(stage)
+
+    cond do
+      stage == :lapsed and index == at -> "gone"
+      index < at -> "done"
+      index == at -> "now"
+      true -> ""
+    end
+  end
+
+  defp commission_totals(board) do
+    commissions =
+      [board.commission | Enum.map(board.history, & &1.commission)] |> Enum.reject(&is_nil/1)
+
+    deposits = [board.deposit | Enum.map(board.history, & &1.deposit)] |> Enum.reject(&is_nil/1)
+
+    %{
+      paid:
+        commissions
+        |> Enum.filter(&(&1.outcome == :disbursed))
+        |> Enum.map(& &1.amount)
+        |> Enum.sum(),
+      written_back:
+        commissions
+        |> Enum.filter(&(&1.outcome == :written_back))
+        |> Enum.map(& &1.amount)
+        |> Enum.sum(),
+      forfeited: deposits |> Enum.map(&(&1.forfeited_amount || 0)) |> Enum.sum()
+    }
+  end
+
+  defp commission_hero(nil, board) do
+    estimate = Sale.Money.commission(board.agreement.guide_price, board.agreement.commission_rate)
+    {Board.money(estimate), "Estimated at the guide price"}
+  end
+
+  defp commission_hero(%{outcome: :disbursed} = commission, _board) do
+    {Board.money(commission.amount),
+     "Paid #{Calendar.strftime(commission.disbursed_at, "%d %b")}"}
+  end
+
+  defp commission_hero(%{outcome: :written_back} = commission, _board) do
+    {Board.money(commission.amount), "Written back — this attempt fell through"}
+  end
+
+  defp commission_hero(%{payable_on: :on_unconditional} = commission, _board) do
+    {Board.money(commission.amount), "Payable once the contract is unconditional"}
+  end
+
+  defp commission_hero(commission, board) do
+    due = board.contract && Calendar.strftime(board.contract.settlement_date, "%d %b %Y")
+    {Board.money(commission.amount), "Payable on settlement, due #{due}"}
+  end
+
+  defp requirements(board) do
+    Enum.map(board.required_documents, fn kind ->
+      {kind, document_label(kind), MapSet.member?(board.received_documents, kind)}
+    end)
+  end
+
+  defp document_label(:contract), do: "Contract of sale prepared"
+  defp document_label(:title_search), do: "Title search"
+  defp document_label(:drainage_diagram), do: "Drainage diagram"
+  defp document_label(:planning_certificate), do: "Planning certificate"
+  defp document_label(:vendor_statement), do: "Vendor statement"
+  defp document_label(:statement_of_information), do: "Statement of information"
+  defp document_label(:form_6), do: "Form 6 appointment"
+  defp document_label(:seller_disclosure), do: "Seller disclosure statement"
+
+  defp cooling_policy(board), do: Sale.Jurisdiction.cooling_off(board.property.jurisdiction)
+
+  defp when_at(datetime), do: Calendar.strftime(datetime, "%d %b %Y")
+
+  defp active_negotiation(board) do
+    board.offers
+    |> Enum.filter(&(&1.status in [:live, :countered]))
+    |> Enum.find(&Map.has_key?(board.workflows.negotiations, &1.id))
+  end
+
+  defp buyer_name(board, buyer_id), do: Enum.find(board.buyers, &(&1.id == buyer_id)).name
+
+  defp condition_by_kind(board, kind), do: Enum.find(board.conditions, &(&1.kind == kind))
+
+  defp jurisdiction_label(:nsw), do: "New South Wales"
+  defp jurisdiction_label(:vic), do: "Victoria"
+  defp jurisdiction_label(:qld), do: "Queensland"
+
+  defp listing_stage(agency_agreement_id), do: Board.load(agency_agreement_id).stage
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div :if={@board == nil} class="main">
+      <p class="empty">No listings yet.</p>
+    </div>
+
+    <div :if={@board != nil} class="shell">
+      <nav class="rail">
+        <div class="rail-head">
+          <span class="eyebrow">My listings</span>
+          <span class="eyebrow">{length(@listings)}</span>
+        </div>
+        <div>
+          <button
+            :for={listing <- @listings}
+            class={["lst", listing.id == @agency_agreement_id && "on"]}
+            phx-click="select"
+            phx-value-id={listing.id}
+          >
+            <div class="addr">{listing.property.address}</div>
+            <div class="sub">{listing.property.suburb} &middot; {String.upcase(to_string(listing.property.jurisdiction))} &middot; {method_label(listing.sale_method)}</div>
+            <div class="foot">
+              <span class="amt">{Board.money(listing.guide_price)} guide</span>
+              <% {pill_class, pill_text} = status_pill(listing_stage(listing.id)) %>
+              <span class={["pill", pill_class]}>{pill_text}</span>
+            </div>
+          </button>
+        </div>
+      </nav>
+
+      <main class="main">
+        <div class="lh">
+          <div>
+            <div class="eyebrow">
+              {@board.property.suburb} &middot; {jurisdiction_label(@board.property.jurisdiction)} &middot; {method_label(@board.agreement.sale_method)}
+            </div>
+            <h1>{@board.property.address}</h1>
+            <div class="meta">
+              Vendor {@board.agreement.vendor_name} &middot; {Decimal.to_string(@board.agreement.commission_rate)}% inc GST, payable {payable_word(@board.agreement.commission_trigger)}
+            </div>
+          </div>
+          <div class="headline">
+            <div class="big">{Board.money((@board.contract && @board.contract.price) || @board.agreement.guide_price)}</div>
+            <div class="cap">{if @board.contract, do: "under contract", else: "guide"}</div>
+          </div>
+        </div>
+
+        <div class="prog">
+          <div :for={{label, index} <- Enum.with_index(progress_steps(@board))} class={["st", progress_status(@board.stage, index)]}>
+            <div class="lab">{label}</div>
+          </div>
+        </div>
+
+        <div :if={@board.history != []} class="banner">
+          <b>The sale to {List.first(@board.history).buyer && List.first(@board.history).buyer.name} fell through.</b>
+          {List.first(@board.history).reason}{forfeit_clause(List.first(@board.history))}.
+          The contract and marketing still stand, so the register stays warm.
+        </div>
+
+        {stage_card(assigns)}
+
+        <div :if={@board.offers != [] and @board.stage in [:offers_open, :offers_in, :negotiating, :auction_day]} class="card">
+          <header>
+            <h3>{if @board.agreement.sale_method == :auction, do: "Registered bidders", else: "Buyers"}</h3>
+          </header>
+          <div class="tblwrap">
+            <table class="tbl">
+              <thead><tr><th>Buyer</th><th>Amount</th><th>Position</th></tr></thead>
+              <tbody>
+                <tr :for={buyer <- @board.buyers}>
+                  <% {label, offer} = buyer_position(buyer, @board) %>
+                  <td><div class="who">{buyer.name}</div><div class="fin">{buyer.lender}</div></td>
+                  <td class="amt">{offer && Board.money(offer.amount)}</td>
+                  <td>{label}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div :if={@board.stage in [:conditions, :awaiting_settlement, :settled] and @board.contract} class="card">
+          <header><h3>Conditions</h3></header>
+          <div class="chk">
+            <div :for={condition <- @board.conditions} class={["item", condition.status != :pending && "on"]}>
+              <span class="box">{if condition.status == :pending, do: "[ ]", else: "[x]"}</span>
+              <span class="lb">{condition_kind_label(condition.kind)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div :if={@board.history != []} class="card gone">
+          <header><h3>Contracts that fell through</h3><span class="eyebrow">{length(@board.history)}</span></header>
+          <div :for={past <- @board.history} class="hist">
+            <div class="hh">
+              <span class="who">{past.buyer && past.buyer.name}</span>
+              <span class="amt">{past.contract && Board.money(past.contract.price)}</span>
+            </div>
+            <div class="why">
+              {past.reason} on {when_at(past.attempt.closed_at)}
+              {forfeit_clause(past)}
+              &middot; commission {past.commission && Board.money(past.commission.amount)} {commission_outcome_words(past.commission)}
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <aside class="aside">
+        <div class="asec">
+          <header>
+            <span class="eyebrow">Your commission</span>
+            <span class="eyebrow">{Decimal.to_string(@board.agreement.commission_rate)}%</span>
+          </header>
+          <% {hero_amount, hero_caption} = commission_hero(@board.commission, @board) %>
+          <div class="money-hero">
+            <div class="big">{hero_amount}</div>
+            <div class="cap">{hero_caption}</div>
+          </div>
+          <% totals = commission_totals(@board) %>
+          <div class="row"><span class="k">Sale price</span><span class="v">{(@board.contract && Board.money(@board.contract.price)) || "—"}</span></div>
+          <div class="row"><span class="k">Deposit in trust</span><span class="v">{(@board.deposit && @board.deposit.status == :held && Board.money(@board.deposit.amount)) || "—"}</span></div>
+          <div class="row"><span class="k">Paid to date</span><span class="v ok">{if totals.paid > 0, do: Board.money(totals.paid), else: "—"}</span></div>
+          <div class="row"><span class="k">Written back</span><span class="v bad">{if totals.written_back > 0, do: Board.money(totals.written_back), else: "—"}</span></div>
+          <div class="row"><span class="k">Forfeited to vendor</span><span class="v bad">{if totals.forfeited > 0, do: Board.money(totals.forfeited), else: "—"}</span></div>
+        </div>
+
+        <div class="asec">
+          <header>
+            <span class="eyebrow">{String.upcase(to_string(@board.property.jurisdiction))} requirements</span>
+            <span class="eyebrow">{MapSet.size(@board.received_documents)} of {length(@board.required_documents)}</span>
+          </header>
+          <div class="chk">
+            <div :for={{_kind, label, received} <- requirements(@board)} class={["item", received && "on"]}>
+              <span class="box">{if received, do: "[x]", else: "[ ]"}</span>
+              <span class="lb">{label}</span>
+            </div>
+          </div>
+          <div class="row">
+            <span class="k">Cooling off<small>{if @board.agreement.sale_method == :auction, do: "not applicable at auction", else: "from exchange"}</small></span>
+            <span class="v">{cooling_policy(@board).business_days} bus. days</span>
+          </div>
+          <div class="row">
+            <span class="k">Forfeit on rescission</span>
+            <span class="v">{Decimal.mult(cooling_policy(@board).forfeit_rate, Decimal.new(100)) |> Decimal.normalize() |> Decimal.to_string()}%</span>
+          </div>
+        </div>
+
+        <div class="asec">
+          <header><span class="eyebrow">Activity</span></header>
+          <ul class="feed">
+            <li :for={{at, text} <- @board.feed}>
+              <time>{when_at(at)}</time><span class="txt">{Phoenix.HTML.raw(text)}</span>
+            </li>
+          </ul>
+          <p :if={@board.feed == []} class="empty">Nothing recorded yet.</p>
+        </div>
+      </aside>
+    </div>
+    """
+  end
+
+  defp payable_word(:on_settlement), do: "on settlement"
+  defp payable_word(:on_unconditional), do: "on unconditional"
+
+  defp condition_kind_label(:finance), do: "Finance"
+  defp condition_kind_label(:inspection), do: "Building & pest"
+  defp condition_kind_label(:title), do: "Title"
+
+  defp forfeit_clause(%{forfeit: forfeit}) when is_integer(forfeit) and forfeit > 0,
+    do: " — #{Board.money(forfeit)} forfeited"
+
+  defp forfeit_clause(%{deposit: %{status: :forfeited, forfeited_amount: amount}})
+       when is_integer(amount) and amount > 0,
+       do: " — #{Board.money(amount)} forfeited"
+
+  defp forfeit_clause(_past), do: ""
+
+  defp commission_outcome_words(nil), do: ""
+  defp commission_outcome_words(%{outcome: :written_back}), do: "written back"
+
+  defp commission_outcome_words(%{outcome: :disbursed, paid_from: "forfeited deposit"}),
+    do: "paid from the forfeited deposit"
+
+  defp commission_outcome_words(%{outcome: :disbursed}), do: "paid"
+
+  defp stage_card(assigns) do
+    ~H"""
+    <div class={["card", stage_key?(@board.stage) && "now"]}>
+      <header>
+        <h3>{stage_title(@board)}</h3>
+        <span :if={stage_actions(@board) != []} class="pill act">Needs you</span>
+      </header>
+      <div class="pad">
+        <div style="color:var(--ink-2);font-size:13.5px;margin-bottom:14px">{stage_sub(@board)}</div>
+        <div :if={stage_actions(@board) != []} class="acts">
+          {stage_action_buttons(assigns)}
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp stage_key?(stage), do: stage not in [:settled, :lapsed]
+
+  defp stage_title(%{stage: :prep}), do: "Waiting on the vendor's solicitor"
+  defp stage_title(%{stage: :marketing}), do: "Ready to go to market"
+  defp stage_title(%{stage: :offers_open}), do: "Offers are open"
+  defp stage_title(%{stage: :offers_in}), do: "Work the offers"
+  defp stage_title(%{stage: :auction_day}), do: "Auction day"
+
+  defp stage_title(%{stage: :negotiating} = board) do
+    if active_negotiation(board), do: "Negotiating", else: "Choose the buyer"
+  end
+
+  defp stage_title(%{stage: :cooling} = board),
+    do: "Cooling off — ends #{when_at(board.contract.exchanged_at)}"
+
+  defp stage_title(%{stage: :conditions}), do: "Conditions to satisfy"
+
+  defp stage_title(%{stage: :awaiting_settlement} = board),
+    do: "Settlement due #{when_at(board.contract.settlement_date)}"
+
+  defp stage_title(%{stage: :settled}), do: "Settled"
+  defp stage_title(%{stage: :lapsed}), do: "Listing ended"
+
+  defp stage_sub(%{stage: :prep}),
+    do: "The property can't go to market until the required documents arrive."
+
+  defp stage_sub(%{stage: :marketing}), do: "Launch the campaign, or the vendor can withdraw."
+
+  defp stage_sub(%{stage: :offers_open} = board),
+    do: "#{length(board.buyers)} buyers have the contract."
+
+  defp stage_sub(%{stage: :offers_in}),
+    do: "Counter or accept each buyer — they move independently."
+
+  defp stage_sub(%{stage: :auction_day} = board) do
+    highest = Enum.find(board.offers, &(&1.status == :live))
+    "Highest bid on record: #{highest && Board.money(highest.amount)}."
+  end
+
+  defp stage_sub(%{stage: :negotiating} = board) do
+    if active_negotiation(board),
+      do: "The vendor and buyer are still bargaining over this offer.",
+      else: "Every buyer has answered — pick who wins."
+  end
+
+  defp stage_sub(%{stage: :cooling}), do: "The buyer may still rescind before the period ends."
+  defp stage_sub(%{stage: :conditions}), do: "The sale is not secure until all three clear."
+  defp stage_sub(%{stage: :awaiting_settlement}), do: "Booked with the parties' conveyancers."
+  defp stage_sub(%{stage: :settled}), do: "Nothing further needed."
+  defp stage_sub(%{stage: :lapsed}), do: "A fresh listing is needed to relaunch this property."
+
+  defp stage_actions(%{stage: :prep} = board) do
+    board.required_documents
+    |> Enum.reject(&MapSet.member?(board.received_documents, &1))
+    |> Enum.map(
+      &%{
+        label: "#{document_label(&1)} received",
+        event: "receive_document",
+        values: %{"kind" => &1},
+        key: false,
+        danger: false
+      }
+    )
+  end
+
+  defp stage_actions(%{stage: :marketing}) do
+    [
+      %{
+        label: "Launch the campaign",
+        event: "launch_campaign",
+        values: %{},
+        key: true,
+        danger: false
+      },
+      %{
+        label: "Vendor withdraws",
+        event: "withdraw_listing",
+        values: %{},
+        key: false,
+        danger: true
+      }
+    ]
+  end
+
+  defp stage_actions(%{stage: :offers_open} = board) do
+    [
+      %{
+        label: "Close offers now",
+        event: "close_offers",
+        values: %{},
+        key: true,
+        danger: false,
+        hint: "#{length(board.offers)} offers received"
+      }
+    ]
+  end
+
+  defp stage_actions(%{stage: :offers_in} = board) do
+    board.offers
+    |> Enum.filter(&(&1.status in [:live, :countered]))
+    |> Enum.flat_map(&offer_actions(board, &1))
+  end
+
+  defp stage_actions(%{stage: :negotiating} = board) do
+    case active_negotiation(board) do
+      nil ->
+        board.offers
+        |> Enum.filter(&(&1.status == :accepted))
+        |> Enum.sort_by(& &1.amount, :desc)
+        |> Enum.with_index()
+        |> Enum.map(fn {offer, index} ->
+          %{
+            label: "Accept #{buyer_name(board, offer.buyer_id)} at #{Board.money(offer.amount)}",
+            event: "select_offer",
+            values: %{"offer_id" => offer.id},
+            key: index == 0,
+            danger: false
+          }
+        end)
+
+      offer ->
+        offer_actions(board, offer)
+    end
+  end
+
+  defp stage_actions(%{stage: :auction_day} = board) do
+    highest = Enum.find(board.offers, &(&1.status == :live))
+
+    [
+      %{
+        label: "Sold under the hammer at #{Board.money(highest.amount)}",
+        event: "sold_under_the_hammer",
+        values: %{},
+        key: true,
+        danger: false
+      },
+      %{label: "Passed in", event: "passed_in", values: %{}, key: false, danger: false}
+    ]
+  end
+
+  defp stage_actions(%{stage: :cooling} = board) do
+    [
+      %{
+        label: "#{buyer_name(board, board.contract.buyer_id)} rescinds during cooling off",
+        event: "rescind",
+        values: %{"buyer_id" => board.contract.buyer_id},
+        key: false,
+        danger: true
+      }
+    ]
+  end
+
+  defp stage_actions(%{stage: :conditions} = board) do
+    []
+    |> maybe_condition(
+      board,
+      :finance,
+      "Lender approves finance",
+      "finance_approved",
+      "Lender declines",
+      "finance_declined"
+    )
+    |> maybe_condition(
+      board,
+      :inspection,
+      "Building & pest report accepted",
+      "inspection_satisfied",
+      "Report finds a defect",
+      "inspection_failed"
+    )
+    |> maybe_condition(
+      board,
+      :title,
+      "Title search comes back clear",
+      "title_clear",
+      "Title search finds an encumbrance",
+      "title_encumbered"
+    )
+  end
+
+  defp stage_actions(%{stage: :awaiting_settlement} = board) do
+    [
+      %{label: "Settlement completes", event: "settle", values: %{}, key: true, danger: false},
+      %{
+        label: "#{buyer_name(board, board.contract.buyer_id)} defaults at settlement",
+        event: "buyer_defaults",
+        values: %{},
+        key: false,
+        danger: true
+      }
+    ]
+  end
+
+  defp stage_actions(_board), do: []
+
+  defp maybe_condition(actions, board, kind, good_label, good_event, bad_label, bad_event) do
+    case condition_by_kind(board, kind) do
+      %{status: :pending} ->
+        actions ++
+          [
+            %{
+              label: good_label,
+              event: good_event,
+              values: %{},
+              key: false,
+              danger: false,
+              group: condition_kind_label(kind)
+            },
+            %{
+              label: bad_label,
+              event: bad_event,
+              values: %{},
+              key: false,
+              danger: true,
+              group: condition_kind_label(kind)
+            }
+          ]
+
+      _resolved ->
+        actions
+    end
+  end
+
+  defp offer_actions(board, offer) do
+    name = buyer_name(board, offer.buyer_id)
+
+    [
+      %{
+        label: "Accept #{name} at #{Board.money(offer.amount)}",
+        event: "accept_offer",
+        values: %{"offer_id" => offer.id},
+        key: true,
+        danger: false,
+        group: name
+      },
+      %{
+        label: "#{name} withdraws",
+        event: "withdraw_offer",
+        values: %{"offer_id" => offer.id},
+        key: false,
+        danger: true,
+        group: name
+      }
+    ]
+  end
+
+  defp stage_action_buttons(assigns) do
+    ~H"""
+    <%= for action <- stage_actions(@board) do %>
+      <div :if={Map.get(action, :group)} class="grp">{action.group}</div>
+      <button
+        class={["do", action.key && "key", action.danger && "no"]}
+        phx-click={action.event}
+        {phx_values(action.values)}
+      >
+        {action.label}
+        <span :if={Map.get(action, :hint)} class="hint">{action.hint}</span>
+      </button>
+      <form
+        :if={action.event == "accept_offer"}
+        phx-submit="counter_offer"
+        style="display:flex;gap:6px;margin:-2px 0 2px"
+      >
+        <input type="hidden" name="offer_id" value={action.values["offer_id"]} />
+        <input type="number" name="amount" placeholder="Counter with $" style="flex:1" />
+        <button class="do" type="submit" style="width:auto">Counter</button>
+      </form>
+    <% end %>
+    """
+  end
+
+  defp phx_values(values) do
+    for {key, value} <- values, into: %{}, do: {"phx-value-#{key}", value}
+  end
+end

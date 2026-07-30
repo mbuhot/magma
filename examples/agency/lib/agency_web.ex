@@ -1,11 +1,12 @@
 defmodule AgencyWeb do
   @moduledoc """
-  The application's web layer: an endpoint and a router.
+  The application's web layer: an endpoint, a router, and the sales desk live view.
 
-  Small on purpose. There is no asset pipeline and no LiveViews yet.
+  Small on purpose. There is no asset pipeline — the LiveView client is served straight out
+  of its own package and the stylesheet lives in `AgencyWeb.Layouts`.
   """
 
-  def static_paths, do: ~w(favicon.ico)
+  def static_paths, do: ~w(vendor favicon.ico)
 
   def router do
     quote do
@@ -13,12 +14,21 @@ defmodule AgencyWeb do
 
       import Plug.Conn
       import Phoenix.Controller
+      import Phoenix.LiveView.Router
     end
   end
 
   def controller do
     quote do
       use Phoenix.Controller, formats: [:html]
+
+      unquote(html_helpers())
+    end
+  end
+
+  def live_view do
+    quote do
+      use Phoenix.LiveView, layout: {AgencyWeb.Layouts, :app}
 
       unquote(html_helpers())
     end
