@@ -150,6 +150,15 @@ end
 
 `Magma.Pruner` runs the deletion from Oban's cron.
 
+## Examples
+
+Two applications you can run, each with a console and a suite.
+
+| | Shows |
+|---|---|
+| [`examples/payouts`](examples/payouts) | durability — the checkpoint, the park, the child workflow, the rollback |
+| [`examples/helpdesk`](examples/helpdesk) | the Ash seam — an actor and a tenant named once, honoured everywhere, with authority read afresh on every attempt |
+
 ## Reading further
 
 - [`DECISIONS.md`](DECISIONS.md) — what shaped magma, and what each choice rules out

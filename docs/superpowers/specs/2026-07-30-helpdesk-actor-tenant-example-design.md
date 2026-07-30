@@ -117,10 +117,11 @@ Bare reads keep the example's point on tenancy and on the one calculated permiss
 ```
 ticket        read_one Ticket by id, fail_on_not_found?
 assess        plain step — reads context.actor and context.tenant itself
-raise         create Escalation — any actor may ask
+raise         create Escalation — any actor may ask, undone by :withdraw
 approval      await "decision", timeout 24h — the run parks here
-reassign      update Ticket, :reassign — needs :reassign_tickets, with undo
+reassign      update Ticket, :reassign — needs :reassign_tickets, undone by :restore_assignee
 notify        create AuditEntry
+outcome       plain step — a rejection is an error, and the run unwinds
 ```
 
 ```elixir
@@ -148,9 +149,9 @@ rather than replayed.
 - An agent raises, is granted nothing, and `:reassign` is `Ash.Error.Forbidden` — the run
   fails and unwinds.
 
-`:reassign` implements `undo/4`, restoring the previous assignee, so a rejected decision
-puts the ticket back. That rollback authorizes as the same rehydrated actor, from the same
-tenant.
+`:reassign` is undone by `:restore_assignee`, which reads the pre-update record off the
+changeset Ash hands an undo action. A rejection fails at `:outcome`, so the rollback is what
+puts the ticket back — authorizing as the same rehydrated actor, from the same tenant.
 
 `:assess` is a plain `step` with no Ash entity at all. It pattern-matches `context.actor`
 and `context.tenant` to decide the escalation's priority — how a non-Ash step reaches the
