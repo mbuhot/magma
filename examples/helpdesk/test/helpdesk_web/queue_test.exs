@@ -11,10 +11,18 @@ defmodule HelpdeskWeb.QueueTest do
     bea = a_user(contoso, "Bea Nkemelu")
 
     a_ticket(northwind, ada, "Card declined at checkout")
-    a_ticket(northwind, ben, "Cannot reset my password")
+    bens_ticket = a_ticket(northwind, ben, "Cannot reset my password")
     a_ticket(contoso, bea, "Invoice is for the wrong month")
 
-    %{northwind: northwind, contoso: contoso, ada: ada, ben: ben, grace: grace, bea: bea}
+    %{
+      northwind: northwind,
+      contoso: contoso,
+      ada: ada,
+      ben: ben,
+      grace: grace,
+      bea: bea,
+      bens_ticket: bens_ticket
+    }
   end
 
   defp open_queue(conn, organisation, person) do
@@ -24,7 +32,7 @@ defmodule HelpdeskWeb.QueueTest do
   end
 
   defp switch_person(view, person) do
-    view |> form("#actor", %{id: person.id}) |> render_change()
+    view |> form("#actor", %{actor_id: person.id}) |> render_change()
   end
 
   test "somebody sees the tickets they are holding", %{conn: conn} = context do
@@ -48,7 +56,8 @@ defmodule HelpdeskWeb.QueueTest do
 
     assert html =~ "Ada Lovelace"
 
-    html = view |> form("#organisation", %{id: context.contoso.id}) |> render_change()
+    html =
+      view |> form("#organisation", %{organisation_id: context.contoso.id}) |> render_change()
 
     assert html =~ "Bea Nkemelu"
     refute html =~ "Ada Lovelace"
@@ -61,6 +70,40 @@ defmodule HelpdeskWeb.QueueTest do
 
     assert html =~ "Card declined at checkout"
     assert html =~ "Cannot reset my password"
+  end
+
+  test "a resolved ticket leaves the team's open list", %{conn: conn} = context do
+    {:ok, bens_page, _html} =
+      live(
+        conn,
+        ~p"/tickets/#{context.bens_ticket.id}?#{[org: context.northwind.id, as: context.ben.id]}"
+      )
+
+    bens_page |> element("button[phx-click='resolve']") |> render_click()
+
+    {view, _html} = open_queue(conn, context.northwind, context.ada)
+    html = view |> element("a", "Open across the team") |> render_click()
+
+    assert html =~ "Card declined at checkout"
+    refute html =~ "Cannot reset my password"
+  end
+
+  test "a queue already open catches up with what happened elsewhere",
+       %{conn: conn} = context do
+    {view, _html} = open_queue(conn, context.northwind, context.ada)
+    html = view |> element("a", "Open across the team") |> render_click()
+
+    assert html =~ "Cannot reset my password"
+
+    {:ok, bens_page, _html} =
+      live(
+        conn,
+        ~p"/tickets/#{context.bens_ticket.id}?#{[org: context.northwind.id, as: context.ben.id]}"
+      )
+
+    bens_page |> element("button[phx-click='resolve']") |> render_click()
+
+    refute repainted(view) =~ "Cannot reset my password"
   end
 
   test "an agent is not shown who can act on escalations", %{conn: conn} = context do

@@ -20,6 +20,9 @@ defmodule HelpdeskWeb.QueueLive do
   def mount(_params, _session, socket), do: {:ok, socket}
 
   @impl true
+  def handle_info(%Phoenix.Socket.Broadcast{}, socket), do: {:noreply, load(socket)}
+
+  @impl true
   def handle_params(params, _uri, socket) do
     {:noreply,
      socket
@@ -29,11 +32,11 @@ defmodule HelpdeskWeb.QueueLive do
   end
 
   @impl true
-  def handle_event("organisation", %{"id" => id}, socket) do
+  def handle_event("organisation", %{"organisation_id" => id}, socket) do
     {:noreply, push_patch(socket, to: ~p"/?#{[org: id]}")}
   end
 
-  def handle_event("actor", %{"id" => id}, socket) do
+  def handle_event("actor", %{"actor_id" => id}, socket) do
     {:noreply, push_patch(socket, to: ~p"/?#{viewing(socket) |> Keyword.put(:as, id)}")}
   end
 
@@ -84,13 +87,16 @@ defmodule HelpdeskWeb.QueueLive do
     tickets
   end
 
-  defp with_escalation(ticket), do: {ticket, Workflow.latest_for(ticket)}
+  defp with_escalation(ticket), do: {ticket, escalation_chips(Workflow.latest_for(ticket))}
 
-  defp escalation_chip(nil), do: nil
-  defp escalation_chip(%{status: :waiting}), do: {"waiting", "awaiting a team lead"}
-  defp escalation_chip(%{status: :completed}), do: {"escalated", "escalated"}
-  defp escalation_chip(%{status: status}) when status in [:failed, :cancelled], do: nil
-  defp escalation_chip(_workflow), do: {"pending", "escalation running"}
+  defp escalation_chips(nil), do: []
+  defp escalation_chips(%{status: :waiting}), do: [{"waiting", "awaiting a team lead"}]
+
+  defp escalation_chips(%{status: status})
+       when status in [:completed, :failed, :cancelled],
+       do: []
+
+  defp escalation_chips(_workflow), do: [{"pending", "escalation running"}]
 
   @impl true
   def render(assigns) do
@@ -117,7 +123,7 @@ defmodule HelpdeskWeb.QueueLive do
 
     <div class="tickets">
       <.link
-        :for={{ticket, run} <- @tickets}
+        :for={{ticket, chips} <- @tickets}
         navigate={~p"/tickets/#{ticket.id}?#{viewing(assigns)}"}
         class="ticket"
       >
@@ -129,9 +135,7 @@ defmodule HelpdeskWeb.QueueLive do
         </div>
 
         <div class="right">
-          <span :if={escalation_chip(run)} class={"chip #{elem(escalation_chip(run), 0)}"}>
-            {elem(escalation_chip(run), 1)}
-          </span>
+          <span :for={{class, label} <- chips} class={"chip #{class}"}>{label}</span>
           <span class={"chip #{ticket.status}"}>{ticket.status}</span>
         </div>
       </.link>

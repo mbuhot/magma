@@ -6,11 +6,21 @@ defmodule Helpdesk.Accounts.Grant do
   That is the whole point of them here.
   """
 
-  use Ash.Resource, domain: Helpdesk.Accounts, data_layer: AshPostgres.DataLayer
+  use Ash.Resource,
+    domain: Helpdesk.Accounts,
+    data_layer: AshPostgres.DataLayer,
+    notifiers: [Ash.Notifier.PubSub]
 
   postgres do
     table("grants")
     repo(Helpdesk.Repo)
+  end
+
+  pub_sub do
+    module(HelpdeskWeb.Endpoint)
+    prefix("grants")
+    publish_all(:create, [:org_id])
+    publish_all(:destroy, [:org_id])
   end
 
   multitenancy do

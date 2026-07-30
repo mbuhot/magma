@@ -71,6 +71,7 @@ Whether the decider may act is read on the attempt that wakes, never when the ru
 | A refused step takes back what was done | `:raise` has an undo, so the escalation is withdrawn |
 | A rejection restores the ticket | `:reassign` has an undo, driven from the checkpoint it recorded |
 | A rollback authorizes as the same actor | magma runs the middleware before unwinding, too |
+| Resolving a ticket drops a run nobody decided | `Magma.cancel/1` unwinds it through the same undo |
 
 ## Permissions
 
@@ -87,12 +88,25 @@ Two sources, so authority can move either way in a test or by hand:
 
 `http://localhost:4000` is a LiveView over the same store the engine writes to.
 
+Every resource the console reads publishes an Ash notification on a topic named for its
+tenant, and a page follows the organisation it is showing. A run that wakes in an Oban process
+reaches an open page the same way a click does.
+
 - **`/`** — the queue. Tickets assigned to whoever is signed in, or everything open across
   their team. Team leads also see who can act on escalations, and can give an agent cover.
 - **`/tickets/:id`** — one ticket, its history, and whatever it is waiting on. Anybody can ask
-  for an escalation; only somebody who can act on one is offered the decision.
+  for an escalation; only somebody who can act on one is offered the decision. Anybody can
+  resolve the ticket, which is the end of it.
 
-Three things to try:
+## Resolving
+
+A resolved ticket is answered, and `:closed` is where it stays. Resolving one whose escalation
+is still parked cancels that run, and the unwind runs `:raise`'s undo, so the escalation it
+recorded is taken back on the way out. The button says so while a run is waiting.
+
+A run that was already decided is left as it ended.
+
+Four things to try:
 
 1. **Switch person.** Ada and Ben hold different tickets. The queue is whoever you are.
 2. **Switch organisation.** Northwind's people vanish and Contoso's appear, because a user
@@ -100,6 +114,8 @@ Three things to try:
 3. **Ask, then change who may answer.** As Ada, request an escalation — it parks, and she is
    told a team lead has to decide. As Grace, give Ada cover. Go back to Ada's ticket: the
    decision is hers to make now, on a run that was already waiting.
+4. **Ask, then resolve instead.** Request an escalation and leave it parked, then resolve the
+   ticket. The run is cancelled, the escalation disappears, and the history says so.
 
 ## Run it
 
@@ -121,6 +137,9 @@ an escalation waits for a decision before the ticket moves anywhere
 a team lead's approval moves the ticket to whoever was named
 the run records every step it finished
 a plain step reads the actor and the tenant off the context
+giving up on a ticket takes back the escalation raised against it
+a ticket nobody escalated is given up on without complaint
+an escalation that was already decided stands after the ticket is given up on
 the audit entry names the person the run acted as
 a permission granted while the run was parked lets it finish
 an actor holding no such permission cannot move the ticket
@@ -137,6 +156,8 @@ somebody sees the tickets they are holding
 switching person shows that person's queue instead
 switching organisation offers that organisation's people
 the team tab shows everything open, not only your own
+a resolved ticket leaves the team's open list
+a queue already open catches up with what happened elsewhere
 an agent is not shown who can act on escalations
 a team lead can give an agent cover, and take it back
 an agent can ask for an escalation
@@ -145,5 +166,9 @@ a team lead is offered the decision on somebody else's request
 approving moves the ticket to whoever the team lead picked
 declining leaves the ticket with whoever had it
 an agent given cover while their request waits can then decide it themselves
+anybody can resolve a ticket they are looking at
+a resolved ticket cannot be escalated by anybody
+resolving a ticket takes back an escalation still waiting on it
+a ticket already open shows the decision somebody else just made
 the history says what happened, in the order it happened
 ```

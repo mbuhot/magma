@@ -9,11 +9,19 @@ defmodule Helpdesk.Support.Escalation do
   use Ash.Resource,
     domain: Helpdesk.Support,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    notifiers: [Ash.Notifier.PubSub]
 
   postgres do
     table("escalations")
     repo(Helpdesk.Repo)
+  end
+
+  pub_sub do
+    module(HelpdeskWeb.Endpoint)
+    prefix("escalations")
+    publish_all(:create, [:org_id])
+    publish_all(:destroy, [:org_id])
   end
 
   multitenancy do

@@ -11,13 +11,22 @@ defmodule HelpdeskWeb.Viewer do
 
   alias Helpdesk.Accounts
 
-  @doc "Reads the organisation and person out of the params, falling back to the first of each."
+  @doc """
+  Reads the organisation and person out of the params, falling back to the first of each.
+
+  A connected page follows whichever organisation it lands on, so anything written to that
+  tenant reaches it without being asked for.
+  """
   @spec assign_viewer(Phoenix.LiveView.Socket.t(), map()) :: Phoenix.LiveView.Socket.t()
   def assign_viewer(socket, params) do
     {:ok, organisations} = Accounts.list_organisations()
 
     organisation = pick(organisations, params["org"])
     {:ok, people} = Accounts.list_users(tenant: organisation.id)
+
+    if Phoenix.LiveView.connected?(socket) do
+      HelpdeskWeb.Updates.follow(followed(socket), organisation.id)
+    end
 
     assign(socket,
       organisations: organisations,
@@ -50,6 +59,9 @@ defmodule HelpdeskWeb.Viewer do
   @spec may_decide?(map()) :: boolean()
   def may_decide?(%{permissions: permissions}), do: :reassign_tickets in permissions
 
+  defp followed(%{assigns: %{organisation: %{id: id}}}), do: id
+  defp followed(_socket), do: nil
+
   defp pick(candidates, nil), do: List.first(candidates)
 
   defp pick(candidates, id) do
@@ -71,7 +83,7 @@ defmodule HelpdeskWeb.Viewer do
     ~H"""
     <div class="switcher">
       <form id="organisation" phx-change="organisation">
-        <select name="id" aria-label="Organisation">
+        <select name="organisation_id" aria-label="Organisation">
           <option :for={org <- @organisations} value={org.id} selected={org.id == @organisation.id}>
             {org.name}
           </option>
@@ -79,7 +91,7 @@ defmodule HelpdeskWeb.Viewer do
       </form>
 
       <form id="actor" phx-change="actor">
-        <select name="id" aria-label="Signed in as">
+        <select name="actor_id" aria-label="Signed in as">
           <option :for={person <- @people} value={person.id} selected={person.id == @actor.id}>
             {person.name} — {title(person.role)}
           </option>

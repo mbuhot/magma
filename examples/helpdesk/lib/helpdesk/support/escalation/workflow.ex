@@ -116,6 +116,25 @@ defmodule Helpdesk.Support.Escalation.Workflow do
   defp raised_for?(_workflow, _ticket_id), do: false
 
   @doc """
+  Gives up on a ticket's escalation, if one is still waiting for a decision.
+
+  Cancelling unwinds the run, and `:raise` carries an undo, so the escalation it recorded is
+  withdrawn on the way back out. A run that already ended is left as it ended.
+  """
+  @spec abandon(Ash.Resource.record()) :: :ok
+  def abandon(ticket) do
+    case latest_for(ticket) do
+      %{status: :waiting, id: workflow_id} ->
+        {:ok, _cancelling} = Magma.cancel(workflow_id)
+
+        :ok
+
+      _run ->
+        :ok
+    end
+  end
+
+  @doc """
   Tells a parked escalation what was decided, by whom, and who the ticket goes to.
 
   The decider travels in the signal because it is not known when the run starts. `:reassign`

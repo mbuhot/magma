@@ -9,11 +9,20 @@ defmodule Helpdesk.Support.Ticket do
   use Ash.Resource,
     domain: Helpdesk.Support,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    notifiers: [Ash.Notifier.PubSub]
 
   postgres do
     table("tickets")
     repo(Helpdesk.Repo)
+  end
+
+  pub_sub do
+    module(HelpdeskWeb.Endpoint)
+    prefix("tickets")
+    publish_all(:create, [:org_id])
+    publish_all(:update, [:org_id])
+    publish_all(:destroy, [:org_id])
   end
 
   multitenancy do
@@ -44,7 +53,7 @@ defmodule Helpdesk.Support.Ticket do
       authorize_if(always())
     end
 
-    policy action(:open) do
+    policy action([:open, :resolve]) do
       authorize_if(always())
     end
 
@@ -77,6 +86,12 @@ defmodule Helpdesk.Support.Ticket do
 
     create :open do
       accept([:subject, :assignee_id])
+    end
+
+    update :resolve do
+      description("Answers a ticket, which is the end of it.")
+      accept([])
+      change(set_attribute(:status, :closed))
     end
 
     update :reassign do

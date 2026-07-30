@@ -17,14 +17,8 @@ defmodule HelpdeskWeb.TicketLive do
   alias Helpdesk.Support
   alias Helpdesk.Support.Escalation.Workflow
 
-  @refresh 750
-
   @impl true
-  def mount(_params, _session, socket) do
-    if connected?(socket), do: :timer.send_interval(@refresh, self(), :refresh)
-
-    {:ok, socket}
-  end
+  def mount(_params, _session, socket), do: {:ok, socket}
 
   @impl true
   def handle_params(%{"id" => ticket_id} = params, _uri, socket) do
@@ -36,14 +30,14 @@ defmodule HelpdeskWeb.TicketLive do
   end
 
   @impl true
-  def handle_info(:refresh, socket), do: {:noreply, load(socket)}
+  def handle_info(%Phoenix.Socket.Broadcast{}, socket), do: {:noreply, load(socket)}
 
   @impl true
-  def handle_event("organisation", %{"id" => id}, socket) do
+  def handle_event("organisation", %{"organisation_id" => id}, socket) do
     {:noreply, push_navigate(socket, to: ~p"/?#{[org: id]}")}
   end
 
-  def handle_event("actor", %{"id" => id}, socket) do
+  def handle_event("actor", %{"actor_id" => id}, socket) do
     viewing = Keyword.put(viewing(socket), :as, id)
 
     {:noreply, push_patch(socket, to: ~p"/tickets/#{socket.assigns.ticket_id}?#{viewing}")}
@@ -65,6 +59,16 @@ defmodule HelpdeskWeb.TicketLive do
     socket.assigns.run.id
     |> Workflow.decide(:rejected, socket.assigns.actor.id, nil)
     |> answered(socket, "Declined. The ticket stays where it was.")
+  end
+
+  def handle_event("resolve", _params, socket) do
+    %{ticket: ticket, organisation: organisation, actor: actor} = socket.assigns
+
+    :ok = Workflow.abandon(ticket)
+
+    ticket.id
+    |> Support.resolve_ticket(tenant: organisation.id, actor: actor)
+    |> answered(socket, "Resolved. Nothing further happens to this ticket.")
   end
 
   defp answered({:ok, _result}, socket, message),
@@ -110,10 +114,14 @@ defmodule HelpdeskWeb.TicketLive do
   defp state(:completed), do: "Escalation approved, and the ticket was reassigned"
   defp state(:failed), do: "Escalation did not go through — the ticket is unchanged"
   defp state(:unwinding), do: "Escalation is being taken back"
+  defp state(:cancelled), do: "Escalation taken back when the ticket was resolved"
   defp state(_status), do: "Escalation running"
 
   defp waiting?(%{status: :waiting}), do: true
   defp waiting?(_run), do: false
+
+  defp closed?(%{status: :closed}), do: true
+  defp closed?(_ticket), do: false
 
   defp open?(nil), do: false
   defp open?(%{status: status}), do: status in [:pending, :running, :waiting, :unwinding]
@@ -139,9 +147,12 @@ defmodule HelpdeskWeb.TicketLive do
       <span style="margin-left:0.5rem">
         Held by {(@ticket.assignee && @ticket.assignee.name) || "nobody"}
       </span>
+      <button :if={!closed?(@ticket)} phx-click="resolve" style="margin-left:0.75rem">
+        {if waiting?(@run), do: "Resolve and drop the escalation", else: "Resolve"}
+      </button>
     </p>
 
-    <div :if={!open?(@run)} class="card">
+    <div :if={!open?(@run) && !closed?(@ticket)} class="card">
       <h2>Ask for an escalation</h2>
       <form id="escalate" phx-submit="escalate">
         <label for="reason">Why does this need a team lead?</label>

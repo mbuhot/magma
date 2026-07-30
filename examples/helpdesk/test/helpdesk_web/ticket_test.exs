@@ -109,6 +109,61 @@ defmodule HelpdeskWeb.TicketTest do
     assert html =~ "Held by Ben Okri"
   end
 
+  defp resolve(view) do
+    view |> element("button[phx-click='resolve']") |> render_click()
+
+    run_escalations()
+
+    repainted(view)
+  end
+
+  test "anybody can resolve a ticket they are looking at", %{conn: conn} = context do
+    {view, _html} = open_ticket(conn, context, context.ben)
+
+    html = resolve(view)
+
+    assert html =~ "closed"
+    assert html =~ "Nothing further happens to this ticket"
+  end
+
+  test "a resolved ticket cannot be escalated by anybody", %{conn: conn} = context do
+    {view, _html} = open_ticket(conn, context, context.ada)
+
+    html = resolve(view)
+
+    refute html =~ "Ask for an escalation"
+
+    {_leads_view, leads_html} = open_ticket(conn, context, context.grace)
+
+    refute leads_html =~ "Ask for an escalation"
+  end
+
+  test "resolving a ticket takes back an escalation still waiting on it",
+       %{conn: conn} = context do
+    {view, _html} = open_ticket(conn, context, context.ada)
+    request_escalation(view)
+
+    html = resolve(view)
+
+    refute html =~ "Waiting on a team lead"
+    assert html =~ "Escalation taken back when the ticket was resolved"
+
+    {_leads_view, leads_html} = open_ticket(conn, context, context.grace)
+
+    refute leads_html =~ "An escalation is waiting on you"
+  end
+
+  test "a ticket already open shows the decision somebody else just made",
+       %{conn: conn} = context do
+    {agents_view, _html} = open_ticket(conn, context, context.ada)
+    request_escalation(agents_view)
+
+    {leads_view, _html} = open_ticket(conn, context, context.grace)
+    decide(leads_view, :approve, %{assignee_id: context.ben.id})
+
+    assert repainted(agents_view) =~ "Held by Ben Okri"
+  end
+
   test "the history says what happened, in the order it happened", %{conn: conn} = context do
     {agents_view, _html} = open_ticket(conn, context, context.ada)
     request_escalation(agents_view)

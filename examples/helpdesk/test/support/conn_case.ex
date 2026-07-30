@@ -29,13 +29,10 @@ defmodule HelpdeskWeb.ConnCase do
   end
 
   @doc """
-  Makes a live view read the store again, and returns what it now shows.
+  What a live view shows once it has taken in everything published to it.
 
-  The page repaints on a timer because the work it starts finishes in another process, so a
-  test that drains the queue has to tell it to look.
+  Rendering is a call, so anything already in the view's mailbox — the notifications a write
+  in this test, or in a job it drained, sent — is handled before the render is answered.
   """
-  def repainted(view) do
-    send(view.pid, :refresh)
-    Phoenix.LiveViewTest.render(view)
-  end
+  def repainted(view), do: Phoenix.LiveViewTest.render(view)
 end

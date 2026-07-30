@@ -16,6 +16,7 @@ defmodule Helpdesk.Support do
       define(:team_tickets, action: :open_in_team)
       define(:get_ticket, action: :by_id, args: [:id], default_options: [load: [:assignee]])
       define(:reassign_ticket, action: :reassign, get_by: [:id])
+      define(:resolve_ticket, action: :resolve, get_by: [:id])
     end
 
     resource Helpdesk.Support.Escalation do
