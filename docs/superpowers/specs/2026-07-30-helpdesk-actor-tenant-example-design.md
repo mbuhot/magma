@@ -113,12 +113,19 @@ LiveView on `http://localhost:4000`, over the same store the engine writes.
 
 | Route | |
 |---|---|
-| `/` | organisation and user switchers, the current tenant's tickets, a form to raise an escalation, and a panel showing what a second organisation sees at the same moment |
+| `/` | organisation and user switchers, the current tenant's tickets, a form to raise an escalation, a promote / demote control on each user, and a panel showing what a second organisation sees at the same moment |
 | `/escalations/:id` | the tape, the actor and tenant the run carries, and approve / reject buttons |
 
 The switchers set the session's actor and tenant; every query the console makes passes
 them, so the page itself is subject to the same policies as the workflow. Approve and
 reject are one call to `Magma.signal/3`.
+
+Promoting a user while a run is parked is how the snapshot rule is seen by hand: the run
+still carries the agent it started as, and `:approver` reads the role as it stands now.
+
+The magma store resources are left as installed — one global table of workflows for every
+organisation. The console lists a tenant's runs by filtering on the tenant recorded on the
+row.
 
 ## Tests
 
