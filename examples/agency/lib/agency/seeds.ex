@@ -22,7 +22,7 @@ defmodule Agency.Seeds do
     oban_jobs
   )
 
-  @doc "Wipes every table this example owns, so seeding always starts from nothing."
+  @doc "Wipes every table this example owns, so a seed or a test run starts from nothing."
   @spec reset!() :: :ok
   def reset! do
     {:ok, _result} =
