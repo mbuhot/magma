@@ -80,19 +80,29 @@ The example's argument is that these are different problems.
 
 ```
 Agency.Sale.Engagement                     ← one per agency agreement
-  agency agreement accepted
+  step     read the agreement and property
   dispatch :compliance_gate                ← module resolved from jurisdiction
-  step   :launch_campaign
-  await  :campaign_outcome                 ← escapes: withdrawn / term expired
-  dispatch :sale_attempt                   ← the generation chain, below
+  dispatch :campaign
   return
 ```
 
-Everything from method selection to settlement lives inside a sale attempt. The gate and
-the campaign sit above it, because they survive a contract falling over.
+The gate clears once. The campaign runs as often as the agent relaunches it, so it is a
+workflow of its own:
 
 ```
-Agency.Sale.SaleAttempt                    ← one generation
+Agency.Sale.Campaign                       ← one marketing run
+  step   :launch
+  await  :campaign_outcome                 ← escapes: withdrawn / term expired
+  step   open a generation
+  dispatch :attempt
+  return
+```
+
+A campaign told to relaunch dispatches a fresh copy of itself, so marketing genuinely runs
+again. Everything from method selection to settlement lives inside an attempt.
+
+```
+Agency.Sale.Attempt                        ← one generation
   ▸ switch on sale_method
       auction    → dispatch Agency.Sale.Auction
       set_date   → dispatch Agency.Sale.SetDateSale
@@ -101,11 +111,14 @@ Agency.Sale.SaleAttempt                    ← one generation
   ▸ switch on cooling_off policy
       applies    → await :cooling_off_expiry, timeout from policy
       exempt     → pass through            (auction lands here)
-  dispatch :conditions
-  await  :settlement
+  dispatch :conditions                     ← returns a failure as a value
+  poll   :settlement                       ← PEXA status discriminates settled / defaulted
   ▸ switch on commission_trigger
       on_unconditional → disburse against the accrual
       on_settlement    → disburse from trust
+  await  :succession_decision              ← on any failure, the agent chooses
+      re_approach <buyer> → dispatch a successor generation
+      relaunch            → dispatch a fresh campaign
 ```
 
 Each method branch is a `dispatch` to a durable child, because every one of them holds an
@@ -117,9 +130,15 @@ The method reactors hold the multi-step branch bodies.
 | Reactor | Shape |
 |---|---|
 | `Auction` | Reserve set → await hammer → unconditional immediately. Passed-in falls through to `PrivateTreaty` |
-| `SetDateSale` | Await offer deadline → `map` + `dispatch` a `Negotiation` per offer → vendor picks → cancel the losers |
+| `SetDateSale` | Await offer deadline → `map` with `allow_async? true`, `dispatch`ing a `Negotiation` per offer → vendor picks → unselected offers become `:missed` |
 | `PrivateTreaty` | Single `Negotiation` child |
-| `Negotiation` | Offer → await response → `switch` on accept / counter / reject / lapse |
+| `Negotiation` | Offer → await response → `switch` on accept / counter / withdraw / lapse. A counter dispatches the next round |
+
+`allow_async? true` is what makes the fan-out concurrent: `map` defaults to running elements
+one at a time, which serialises dispatched children.
+
+Losing negotiations need no cancellation. A `map` of dispatches completes only when every child
+has returned, so nothing is still running when the vendor chooses.
 
 ### Sale attempts and the generation chain
 
@@ -128,21 +147,31 @@ defaulting at settlement. What survives is everything the agent built — the co
 holds, the campaign holds, the agency agreement runs on, and the buyer register keeps the
 underbidders. Campaigns resume.
 
-A failed attempt therefore dispatches its successor:
+A failed attempt asks the agent what to do, then dispatches accordingly:
 
 ```
-Engagement
-  dispatch :sale_attempt        → SaleAttempt generation 1
-                                    on failure: dispatch :next_attempt
-                                      → SaleAttempt generation 2 (register minus the buyer)
-                                        on failure: dispatch :next_attempt
-                                          → …
+Campaign
+  dispatch :attempt             → Attempt generation 1
+                                    on failure, await the agent's decision:
+                                      re_approach <buyer> → Attempt generation 2
+                                                              on failure: ask again
+                                                                → …
+                                      relaunch            → a fresh Campaign
                                     on settlement: report up
 ```
 
 Each generation is a different parent, so derived child ids never collide and the chain is
 unbounded without a counter threaded through the graph. Generation 2 onward is a private
-treaty against the register, which is what agents do.
+treaty against the chosen buyer.
+
+The decision is the agent's, because the highest underbidder is often the weaker prospect —
+a buyer whose finance is already approved is worth calling first. Both choices arrive as one
+`succession.decision` signal whose payload discriminates, since sibling awaits on separate
+signal names cannot both resolve. Its timeout comes from the agreement's `term_end`: an agent
+who never calls anyone back reaches the end of the term with no sale.
+
+The buyer register belongs to the agreement, so a buyer stays approachable on the latest thing
+they said, across every attempt.
 
 Failure consequences differ, and the example turns on them.
 
@@ -207,7 +236,7 @@ Ash resources under `Agency.Sale`.
 | `Property` | Address, `jurisdiction` |
 | `AgencyAgreement` | Vendor, agent, `appointment`, term, rate, `commission_trigger`, `sale_method` |
 | `ComplianceDocument` | Kind, received_at |
-| `SaleAttempt` | Generation, opened_at, closed_at, `outcome`, predecessor |
+| `SaleAttempt` | Generation, `sale_method`, opened_at, closed_at, `outcome`, predecessor |
 | `Buyer` | Name, conveyancer, lender, `register_status` |
 | `Offer` | Buyer, attempt, amount, requested conditions, expiry, `status`, `supersedes` |
 | `Contract` | Attempt, buyer, price, deposit, exchanged_at, unconditional_at, settlement_date |
@@ -276,27 +305,46 @@ playing a listing forward to reach an interesting state.
 
 In priority order.
 
-1. **`dispatch` inside `recurse` yields distinct children.** The prerequisite, written first
-   and failing.
-2. **Replay determinism across a branch.** Kill mid-branch, replay, confirm resumption at
+1. **Replay determinism across a branch.** Kill mid-branch, replay, confirm resumption at
    the edge and re-entry into the same branch.
-3. Each sale method reaches exchange. Cooling-off applies for treaty and set date, and is
-   exempt for auction.
-4. Set date sale cancels losing negotiation children on exchange, and the vendor's decision
-   window expires with the shortest live offer.
-5. Conditions satisfy in any order and the attempt advances only when all three land.
-6. The generation chain: a rescission opens generation 2 against the surviving register,
-   and the two generations hold distinct child ids.
-7. Each failure's commission consequence — written back on rescission and condition
+2. Each sale method reaches exchange. Cooling-off applies for treaty and set date, and is
+   exempt for auction sold under the hammer. An auction that passes in carries a window.
+3. Three offers negotiate concurrently and may be answered in any order; the vendor's
+   selection leaves the rest `:missed`.
+4. Conditions satisfy in any order and the attempt advances only when all three land.
+5. The generation chain: a rescission leaves the listing awaiting the agent's decision;
+   choosing a buyer who is not the highest opens generation 2 against that buyer; relaunching
+   returns to the campaign; an undecided listing reaches the end of the term.
+6. Each failure's commission consequence — written back on rescission and condition
    failure, paid from the forfeited deposit on buyer default.
-8. Gate resolution per jurisdiction, with business-day arithmetic crossing a state holiday.
-9. Both commission triggers disburse at the right moment.
-10. Engagement-level terminals: term expiry, vendor withdrawal, register exhausted.
+7. Gate resolution per jurisdiction, with business-day arithmetic crossing a state holiday.
+8. Both commission triggers disburse at the right moment.
+9. Terminals: term expiry, vendor withdrawal, register exhausted.
+10. Both screens: each seeded listing renders its own state, clicking through the picker
+    changes the listing, and the console shows a child under its parent.
 
 ## Scope
 
 Everything above: three jurisdictions, three sale methods, the generation chain, seeded
 listings, both views. The largest example in the repo.
+
+## What the build changed
+
+Recorded because the reasoning is worth keeping.
+
+| Design as specified | As built | Why |
+|---|---|---|
+| Method branches `compose`d | `dispatch`ed | A step inside a `compose` cannot durably wait |
+| Losing negotiations cancelled | Unselected offers become `:missed` | A `map` of dispatches completes only when every child has returned |
+| Counter rounds `recurse` | A chain of self-dispatching children | A wait cannot live inside a `recurse` |
+| Campaign inside `Engagement` | Its own self-dispatching workflow | Relaunching means running marketing again |
+| Successor opens automatically | The agent chooses the buyer, or relaunches | An agent decides who to call back |
+| Register per generation | Per agreement | A buyer is approachable on the latest thing they said |
+| `Conditions` errors on a decline | Returns the failure as a value | A dispatched child's error unwinds its caller |
+| Settlement an `await` | A `poll` of the PEXA workspace | Its status discriminates settled from defaulted |
+| Await windows from policy constants | Resolved from the rows that carry the dates | Magma gained run-time timeout resolution |
+
+Five magma defects surfaced along the way, each recorded in `DECISIONS.md` 24 through 28.
 
 Sequenced so the prerequisite lands first, then the reactors, then the resources, then the
 two views.
