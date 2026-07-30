@@ -25,13 +25,13 @@ defmodule Helpdesk.AuthorityTest do
     workflow
   end
 
-  defp approve(workflow, assignee) do
-    {:ok, _signal} = Workflow.decide(workflow.id, :approved, assignee.id)
+  defp approve(workflow, decider) do
+    {:ok, _signal} = Workflow.decide(workflow.id, :approved, decider.id, decider.id)
     run_escalations()
   end
 
-  defp reject(workflow) do
-    {:ok, _signal} = Workflow.decide(workflow.id, :rejected, nil)
+  defp reject(workflow, decider) do
+    {:ok, _signal} = Workflow.decide(workflow.id, :rejected, decider.id, nil)
     run_escalations()
   end
 
@@ -81,7 +81,7 @@ defmodule Helpdesk.AuthorityTest do
     other = a_user(context.organisation, "Bea")
     workflow = escalate(context.ticket, context.agent)
 
-    reject(workflow)
+    reject(workflow, context.agent)
 
     ticket = reload_ticket(context.organisation, context.ticket, context.agent)
 
@@ -92,10 +92,10 @@ defmodule Helpdesk.AuthorityTest do
   end
 
   test "the role a user holds grants the same permission a grant does", context do
-    manager = a_user(context.organisation, "Grace", :manager)
-    workflow = escalate(context.ticket, manager)
+    team_lead = a_user(context.organisation, "Grace", :team_lead)
+    workflow = escalate(context.ticket, team_lead)
 
-    approve(workflow, manager)
+    approve(workflow, team_lead)
 
     assert status(workflow) == :completed
   end

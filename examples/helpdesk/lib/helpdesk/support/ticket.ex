@@ -62,6 +62,19 @@ defmodule Helpdesk.Support.Ticket do
       filter(expr(id == ^arg(:id)))
     end
 
+    read :assigned_to do
+      description("The queue one person is holding.")
+      argument(:assignee_id, :uuid, allow_nil?: false)
+      filter(expr(assignee_id == ^arg(:assignee_id)))
+      prepare(build(load: [:assignee], sort: [inserted_at: :asc]))
+    end
+
+    read :open_in_team do
+      description("Everything still open across the organisation.")
+      filter(expr(status != :closed))
+      prepare(build(load: [:assignee], sort: [inserted_at: :asc]))
+    end
+
     create :open do
       accept([:subject, :assignee_id])
     end

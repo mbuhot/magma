@@ -12,7 +12,9 @@ defmodule Helpdesk.Support do
     resource Helpdesk.Support.Ticket do
       define(:open_ticket, action: :open)
       define(:list_tickets, action: :read, default_options: [load: [:assignee]])
-      define(:get_ticket, action: :by_id, args: [:id])
+      define(:my_tickets, action: :assigned_to, args: [:assignee_id])
+      define(:team_tickets, action: :open_in_team)
+      define(:get_ticket, action: :by_id, args: [:id], default_options: [load: [:assignee]])
       define(:reassign_ticket, action: :reassign, get_by: [:id])
     end
 

@@ -6,10 +6,10 @@ defmodule Helpdesk.EscalationTest do
   setup do
     organisation = an_organisation()
     agent = a_user(organisation, "Ada")
-    manager = a_user(organisation, "Grace", :manager)
+    team_lead = a_user(organisation, "Grace", :team_lead)
     ticket = a_ticket(organisation, agent)
 
-    %{organisation: organisation, agent: agent, manager: manager, ticket: ticket}
+    %{organisation: organisation, agent: agent, team_lead: team_lead, ticket: ticket}
   end
 
   defp escalate(ticket, actor) do
@@ -19,8 +19,10 @@ defmodule Helpdesk.EscalationTest do
     workflow
   end
 
-  defp decide(workflow, decision, assignee) do
-    {:ok, _signal} = Workflow.decide(workflow.id, decision, assignee && assignee.id)
+  defp decide(workflow, decision, decider, assignee) do
+    {:ok, _signal} =
+      Workflow.decide(workflow.id, decision, decider.id, assignee && assignee.id)
+
     run_escalations()
   end
 
@@ -31,26 +33,27 @@ defmodule Helpdesk.EscalationTest do
     assert reload_ticket(context.organisation, context.ticket, context.agent).status == :open
   end
 
-  test "a manager's approval moves the ticket to whoever was named", context do
-    workflow = escalate(context.ticket, context.manager)
-    decide(workflow, :approved, context.manager)
+  test "a team lead's approval moves the ticket to whoever was named", context do
+    workflow = escalate(context.ticket, context.team_lead)
+    decide(workflow, :approved, context.team_lead, context.team_lead)
 
-    ticket = reload_ticket(context.organisation, context.ticket, context.manager)
+    ticket = reload_ticket(context.organisation, context.ticket, context.team_lead)
 
     assert status(workflow) == :completed
     assert ticket.status == :escalated
-    assert ticket.assignee_id == context.manager.id
+    assert ticket.assignee_id == context.team_lead.id
   end
 
   test "the run records every step it finished", context do
-    workflow = escalate(context.ticket, context.manager)
-    decide(workflow, :approved, context.manager)
+    workflow = escalate(context.ticket, context.team_lead)
+    decide(workflow, :approved, context.team_lead, context.team_lead)
 
     assert declared_tape(workflow) == [
              ":ticket",
              ":assess",
              ":raise",
              ":approval",
+             ":decider",
              ":reassign",
              ":notify",
              ":outcome"
@@ -65,11 +68,11 @@ defmodule Helpdesk.EscalationTest do
   end
 
   test "the audit entry names the person the run acted as", context do
-    workflow = escalate(context.ticket, context.manager)
-    decide(workflow, :approved, context.manager)
+    workflow = escalate(context.ticket, context.team_lead)
+    decide(workflow, :approved, context.team_lead, context.team_lead)
 
     {:ok, [entry]} =
-      Helpdesk.Support.audit_trail(tenant: context.organisation.id, actor: context.manager)
+      Helpdesk.Support.audit_trail(tenant: context.organisation.id, actor: context.team_lead)
 
     assert entry.actor_name == "Grace"
     assert entry.action == "escalation decided"

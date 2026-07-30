@@ -12,8 +12,8 @@ defmodule Helpdesk.IsolationTest do
     %{
       northwind: northwind,
       contoso: contoso,
-      ada: a_user(northwind, "Ada", :manager),
-      bea: a_user(contoso, "Bea", :manager)
+      ada: a_user(northwind, "Ada", :team_lead),
+      bea: a_user(contoso, "Bea", :team_lead)
     }
   end
 
@@ -51,7 +51,7 @@ defmodule Helpdesk.IsolationTest do
 
     assert status(workflow) == :waiting
 
-    {:ok, _signal} = Workflow.decide(workflow.id, :approved, context.ada.id)
+    {:ok, _signal} = Workflow.decide(workflow.id, :approved, context.ada.id, context.ada.id)
     run_escalations()
 
     {:ok, [entry]} =
@@ -79,8 +79,8 @@ defmodule Helpdesk.IsolationTest do
     {:ok, their_run} = Workflow.start(theirs, "theirs", context.bea)
     run_escalations()
 
-    {:ok, _signal} = Workflow.decide(our_run.id, :approved, context.ada.id)
-    {:ok, _signal} = Workflow.decide(their_run.id, :approved, context.bea.id)
+    {:ok, _signal} = Workflow.decide(our_run.id, :approved, context.ada.id, context.ada.id)
+    {:ok, _signal} = Workflow.decide(their_run.id, :approved, context.bea.id, context.bea.id)
     run_escalations()
 
     {:ok, ours_only} =

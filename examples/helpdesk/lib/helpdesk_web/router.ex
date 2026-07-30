@@ -15,7 +15,7 @@ defmodule HelpdeskWeb.Router do
   scope "/", HelpdeskWeb do
     pipe_through(:browser)
 
-    live("/", ConsoleLive, :index)
-    live("/escalations/:id", EscalationLive, :show)
+    live("/", QueueLive, :index)
+    live("/tickets/:id", TicketLive, :show)
   end
 end

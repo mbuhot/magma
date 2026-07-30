@@ -20,6 +20,6 @@ defmodule Helpdesk.Accounts.Calculations.Permissions do
     end)
   end
 
-  defp by_role(:manager), do: [:reassign_tickets]
+  defp by_role(:team_lead), do: [:reassign_tickets]
   defp by_role(:agent), do: []
 end

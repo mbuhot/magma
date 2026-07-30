@@ -7,16 +7,20 @@ defmodule Helpdesk.Support.Escalation.Workflow do
   arguments. `Ash.Reactor` reads both off the reactor context, and magma seeds that context
   from the workflow's row on every attempt.
 
-  The demonstration is the gap either side of the wait. Raising needs no permission.
-  Reassigning needs `:reassign_tickets`. Same actor, same run — and which way it goes is
-  decided by the grants that stand when the run wakes, because `Helpdesk.Accounts.Rehydrate`
-  loads the actor's permissions afresh each attempt.
+  The run acts as the person who asked, which is what reads the ticket and records the
+  request. Moving the ticket is somebody else's authority, so `:reassign` names the person who
+  decided as its actor — the one place either is stated per step, and only because the domain
+  says so.
+
+  Whether that decider may act is read when the run wakes, not when it parked. An agent given
+  cover while their request sat waiting can approve it themselves.
 
   | | |
   |---|---|
   | The run acts as its caller | the actor is on the context, from the row, on every attempt |
   | Another organisation's ticket is not found | tenancy scopes `:ticket`, and it fails on not found |
-  | Authority is current, not frozen | a grant made during the wait lets `:reassign` through |
+  | A decision carries its own authority | `:reassign` takes its actor from `:decider` |
+  | Authority is current, not frozen | `:decider` is read on the attempt that wakes |
   | A rejection puts the ticket back | `:outcome` fails, and `:reassign` has an undo |
   """
 
@@ -57,15 +61,22 @@ defmodule Helpdesk.Support.Escalation.Workflow do
     wait_for(:raise)
   end
 
+  read_one :decider, Helpdesk.Accounts.User, :by_id do
+    inputs(%{id: result(:approval, [:decided_by_id])})
+    fail_on_not_found?(true)
+  end
+
   update :reassign, Helpdesk.Support.Ticket, :reassign do
     initial(result(:ticket))
     inputs(%{assignee_id: result(:approval, [:assignee_id])})
+    actor(result(:decider))
     undo(:always)
     undo_action(:restore_assignee)
   end
 
   create :notify, Helpdesk.Support.AuditEntry, :record do
     inputs(%{action: value("escalation decided")})
+    actor(result(:decider))
     wait_for(:reassign)
   end
 
@@ -87,10 +98,37 @@ defmodule Helpdesk.Support.Escalation.Workflow do
     )
   end
 
-  @doc "Tells a parked escalation what was decided, and who the ticket goes to."
-  @spec decide(String.t(), Helpdesk.Support.Decision.t(), String.t() | nil) ::
+  @doc """
+  The most recent run raised against a ticket, or `nil`.
+
+  The console holds no reference of its own: a run records the ticket it was started for in
+  its inputs, so the ticket's page finds it by asking the store.
+  """
+  @spec latest_for(Ash.Resource.record()) :: Ash.Resource.record() | nil
+  def latest_for(%{id: ticket_id, org_id: org_id}) do
+    Helpdesk.Magma.Workflow
+    |> Ash.read!()
+    |> Enum.filter(&(&1.tenant == org_id and raised_for?(&1, ticket_id)))
+    |> Enum.max_by(& &1.id, fn -> nil end)
+  end
+
+  defp raised_for?(%{inputs: %{ticket_id: ticket_id}}, ticket_id), do: true
+  defp raised_for?(_workflow, _ticket_id), do: false
+
+  @doc """
+  Tells a parked escalation what was decided, by whom, and who the ticket goes to.
+
+  The decider travels in the signal because it is not known when the run starts. `:reassign`
+  names them as its actor, so the move is authorized against the authority of the person who
+  approved it, read at the moment the run wakes.
+  """
+  @spec decide(String.t(), Helpdesk.Support.Decision.t(), String.t(), String.t() | nil) ::
           {:ok, Ash.Resource.record()} | {:error, term()}
-  def decide(workflow_id, decision, assignee_id \\ nil) do
-    Magma.signal(workflow_id, "decision", %{decision: decision, assignee_id: assignee_id})
+  def decide(workflow_id, decision, decided_by_id, assignee_id \\ nil) do
+    Magma.signal(workflow_id, "decision", %{
+      decision: decision,
+      decided_by_id: decided_by_id,
+      assignee_id: assignee_id
+    })
   end
 end

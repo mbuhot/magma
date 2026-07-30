@@ -4,6 +4,6 @@ defmodule Helpdesk.Accounts.Role do
   use Ash.Type.Enum,
     values: [
       agent: "answers tickets, and may ask for one to be escalated",
-      manager: "may reassign a ticket, by virtue of the role"
+      team_lead: "may act on an escalation, by virtue of the role"
     ]
 end

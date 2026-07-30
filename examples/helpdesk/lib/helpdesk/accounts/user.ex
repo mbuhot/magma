@@ -41,7 +41,9 @@ defmodule Helpdesk.Accounts.User do
     calculate(
       :permissions,
       {:array, Helpdesk.Accounts.Permission},
-      Helpdesk.Accounts.Calculations.Permissions, public?: true)
+      Helpdesk.Accounts.Calculations.Permissions,
+      public?: true
+    )
   end
 
   actions do
@@ -49,6 +51,14 @@ defmodule Helpdesk.Accounts.User do
 
     read :with_permissions do
       description("A user with the authority they hold right now.")
+      prepare(build(load: [:permissions]))
+    end
+
+    read :by_id do
+      description("One user, with the authority they hold right now.")
+      get?(true)
+      argument(:id, :uuid, allow_nil?: false)
+      filter(expr(id == ^arg(:id)))
       prepare(build(load: [:permissions]))
     end
 
