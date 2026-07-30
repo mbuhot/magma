@@ -113,14 +113,42 @@ defmodule Agency.Sale.NegotiationTest do
   end
 
   test "an offer nobody answers before it expires lapses", context do
-    %{offer: offer} = context
+    %{attempt: attempt, buyer: buyer} = context
 
-    hold_waits_past_their_window()
+    offer =
+      an_offer_expiring_at(
+        attempt,
+        buyer,
+        880_000_00,
+        DateTime.add(DateTime.utc_now(), 2, :second)
+      )
 
     workflow = negotiate(offer)
+
+    assert status(workflow) == :waiting
+
+    run_agency_after(2_000)
 
     assert status(workflow) == :completed
     assert recorded(workflow, :outcome) == %{outcome: :no_sale, reason: :lapsed}
     assert Sale.get_offer!(offer.id).status == :lapsed
+  end
+
+  test "an offer whose expiry has already passed when nobody has answered lapses", context do
+    %{attempt: attempt, buyer: buyer} = context
+
+    expired_offer =
+      an_offer_expiring_at(
+        attempt,
+        buyer,
+        880_000_00,
+        DateTime.add(DateTime.utc_now(), -5, :second)
+      )
+
+    workflow = negotiate(expired_offer)
+
+    assert status(workflow) == :completed
+    assert recorded(workflow, :outcome) == %{outcome: :no_sale, reason: :lapsed}
+    assert Sale.get_offer!(expired_offer.id).status == :lapsed
   end
 end

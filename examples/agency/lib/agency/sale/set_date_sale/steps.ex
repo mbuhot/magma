@@ -3,15 +3,21 @@ defmodule Agency.Sale.SetDateSale.Steps do
 
   alias Agency.Sale
   alias Agency.Sale.Outcome
+  alias Agency.Sale.Window
 
-  defmodule OfferWindow do
-    @moduledoc false
-    use Reactor.Step
+  @doc "How long a set date sale still has before it stops taking offers."
+  @spec offers_close_deadline(map(), map()) :: pos_integer()
+  def offers_close_deadline(%{offer_deadline: offer_deadline}, _context) do
+    Window.ms_until(offer_deadline)
+  end
 
-    @impl true
-    def run(%{offer_deadline: offer_deadline}, _context, _options) do
-      {:ok, %{closes_at: offer_deadline}}
-    end
+  @doc "How long the vendor can sit on the offers still live, bounded by the soonest to expire."
+  @spec vendor_selection_deadline(map(), map()) :: pos_integer()
+  def vendor_selection_deadline(%{accepted: accepted}, _context) do
+    accepted
+    |> Enum.map(&Sale.get_offer!(&1.offer_id).expires_at)
+    |> Enum.min(DateTime)
+    |> Window.ms_until()
   end
 
   defmodule LiveOffers do

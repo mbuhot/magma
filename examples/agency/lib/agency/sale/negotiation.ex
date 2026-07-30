@@ -13,7 +13,6 @@ defmodule Agency.Sale.Negotiation do
   alias Agency.Sale.Negotiation.Steps
   alias Agency.Sale.Offer
   alias Agency.Sale.Outcome
-  alias Agency.Sale.Window
 
   magma do
     queue(:sales)
@@ -28,9 +27,9 @@ defmodule Agency.Sale.Negotiation do
 
   await :response do
     signal("negotiation.response")
-    timeout(Window.offer_response())
+    argument(:offer, result(:offer))
+    timeout(&Steps.response_deadline/2)
     on_timeout(:return)
-    wait_for(:offer)
   end
 
   step :decision, Steps.Decision do

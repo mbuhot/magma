@@ -10,7 +10,6 @@ defmodule Agency.Sale.SetDateSale do
 
   alias Agency.Sale.Outcome
   alias Agency.Sale.SetDateSale.Steps
-  alias Agency.Sale.Window
 
   magma do
     queue(:sales)
@@ -19,15 +18,11 @@ defmodule Agency.Sale.SetDateSale do
   input(:sale_attempt_id)
   input(:offer_deadline)
 
-  step :offer_window, Steps.OfferWindow do
-    argument(:offer_deadline, input(:offer_deadline))
-  end
-
   await :offers_close do
     signal("set_date.offers_close")
-    timeout(Window.offer_deadline())
+    argument(:offer_deadline, input(:offer_deadline))
+    timeout(&Steps.offers_close_deadline/2)
     on_timeout(:return)
-    wait_for(:offer_window)
   end
 
   step :live_offers, Steps.LiveOffers do
@@ -61,7 +56,8 @@ defmodule Agency.Sale.SetDateSale do
     default do
       await :vendor_selection do
         signal("set_date.vendor_selection")
-        timeout(Window.vendor_decision())
+        argument(:accepted, result(:accepted))
+        timeout(&Steps.vendor_selection_deadline/2)
         on_timeout(:return)
       end
 

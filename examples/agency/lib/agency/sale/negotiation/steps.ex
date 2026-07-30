@@ -3,6 +3,10 @@ defmodule Agency.Sale.Negotiation.Steps do
 
   alias Agency.Sale.Window
 
+  @doc "How long an offer's own response window still has to run."
+  @spec response_deadline(map(), map()) :: pos_integer()
+  def response_deadline(%{offer: offer}, _context), do: Window.ms_until(offer.expires_at)
+
   defmodule Decision do
     @moduledoc false
     use Reactor.Step
