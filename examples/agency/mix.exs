@@ -26,6 +26,7 @@ defmodule Agency.MixProject do
   defp deps do
     [
       {:magma, path: "../.."},
+      {:reactor, github: "ash-project/reactor", override: true},
       {:ash_postgres, "~> 2.11"},
       {:oban, "~> 2.19"},
       {:phoenix, "~> 1.7"},

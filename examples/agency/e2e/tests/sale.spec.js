@@ -72,17 +72,19 @@ async function takeOffer(page, buyer, lender, amount) {
   await expect(page.getByRole("cell", { name: buyer })).toBeVisible();
 }
 
+// Answering the last buyer can carry the sale straight past the chooser, since a vendor with one
+// offer left has no choice to make.
 async function answerEveryBuyer(page) {
-  const chooser = page.getByRole("heading", { name: "Choose the buyer" });
+  const answered = page.getByRole("heading", { name: /Choose the buyer|^Cooling off/ });
 
   await expect(async () => {
-    if (await chooser.isVisible()) return;
+    if (await answered.isVisible()) return;
 
     const accept = page.getByRole("button", { name: /^Accept / }).first();
 
     if (await accept.isVisible()) await accept.click({ timeout: 3000 });
 
-    await expect(chooser).toBeVisible({ timeout: 3000 });
+    await expect(answered).toBeVisible({ timeout: 3000 });
   }).toPass({ timeout: 90_000 });
 }
 

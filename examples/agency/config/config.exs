@@ -41,6 +41,7 @@ if config_env() == :test do
   config :agency, Oban, repo: Agency.Repo, testing: :manual, queues: false, plugins: false
   config :agency, AgencyWeb.Endpoint, server: false, http: [port: 4002]
   config :magma, block_ms: 0
+  config :magma, halt_timeout: 50
 
   config :ash, :missed_notifications, :ignore
   config :logger, level: :warning

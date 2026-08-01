@@ -35,7 +35,7 @@ defmodule Magma.MixProject do
     [
       {:ash, "~> 3.30"},
       {:ash_postgres, "~> 2.11"},
-      {:reactor, "~> 1.0"},
+      {:reactor, github: "ash-project/reactor", override: true},
       {:oban, "~> 2.19"},
       {:igniter, "~> 0.6", optional: true},
       {:usage_rules, "~> 0.1", only: [:dev]},

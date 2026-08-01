@@ -38,9 +38,20 @@ defmodule Magma.Run do
       |> Reactor.Info.to_struct!()
       |> decorate(context)
 
-    options = Keyword.put_new_lazy(options, :max_concurrency, fn -> concurrency(reactor) end)
+    options =
+      options
+      |> Keyword.put_new_lazy(:max_concurrency, fn -> concurrency(reactor) end)
+      |> Keyword.put_new_lazy(:halt_timeout, &halt_timeout/0)
 
     Reactor.run(reactor, workflow.inputs || %{}, context, options)
+  end
+
+  # A halt waits for the steps still in flight, so those that finish record what they did and the
+  # next attempt replays them rather than running them again. How long a deployment is willing to
+  # hold a worker for that is deployment policy, and a suite whose waits park instantly pays
+  # nothing for it.
+  defp halt_timeout do
+    Application.get_env(:magma, :halt_timeout, 5_000)
   end
 
   # Every wait a run could be parked on at once needs a slot of its own. Reactor starts as many

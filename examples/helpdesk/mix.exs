@@ -26,6 +26,7 @@ defmodule Helpdesk.MixProject do
   defp deps do
     [
       {:magma, path: "../.."},
+      {:reactor, github: "ash-project/reactor", override: true},
       {:ash_postgres, "~> 2.11"},
       {:picosat_elixir, "~> 0.2"},
       {:oban, "~> 2.19"},
