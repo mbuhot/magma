@@ -33,16 +33,18 @@ defmodule Magma.Step.Await do
     name = Keyword.fetch!(options, :signal)
     workflow_id = workflow_id(context)
 
+    Magma.Notifier.listen(workflow_id, name)
+
     case take(workflow_id, name) do
       {:ok, payload} -> {:ok, payload}
       :none -> park_and_block(workflow_id, name, arguments, context, options)
     end
   end
 
+  # Listening is the first thing the step does, before it has written anything, so a sibling that
+  # halts while this one is still parking finds it already there to be told.
   defp park_and_block(workflow_id, name, arguments, context, options) do
     deadline = park(workflow_id, name, arguments, context, options)
-
-    Magma.Notifier.listen(workflow_id, name)
 
     case take(workflow_id, name) do
       {:ok, payload} -> {:ok, payload}
@@ -55,6 +57,7 @@ defmodule Magma.Step.Await do
 
     receive do
       {:magma_signal, ^workflow_id, ^name} -> :woken
+      {:magma_halting, ^workflow_id} -> :giving_up
     after
       block_ms -> :timeout
     end

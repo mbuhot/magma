@@ -33,6 +33,13 @@ defmodule Magma.Middleware do
     telemetry(:step_error, step, context)
   end
 
+  def event({:run_halt, _value}, _step, context) do
+    case workflow_id(context) do
+      nil -> :ok
+      workflow_id -> Magma.Notifier.halting(workflow_id)
+    end
+  end
+
   def event({:compensate_error, error}, _step, context) do
     record_error(context, error)
   end

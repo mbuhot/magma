@@ -217,7 +217,7 @@ defmodule Magma.Test.Workflows do
 
     poll(:arrival, every: 60_000, until: &Magma.Test.Workflows.arrived/2)
 
-    await(:confirmation, signal: "confirm", block_ms: 0, timeout: 600_000)
+    await(:confirmation, signal: "confirm", block_ms: 60_000, timeout: 600_000)
 
     step :join, {Effect, name: :join} do
       argument(:arrival, result(:arrival))

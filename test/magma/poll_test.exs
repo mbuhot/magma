@@ -66,6 +66,16 @@ defmodule Magma.PollTest do
     assert kinds == [:poll, :signal]
   end
 
+  test "a wait holding its window open gives it up when the run halts around it" do
+    {:ok, workflow} = Magma.start(Workflows.Watched, %{order_id: "ord_1"})
+
+    {took_ms, _drained} =
+      :timer.tc(fn -> Oban.drain_queue(queue: :default, with_safety: false) end, :millisecond)
+
+    assert reload(workflow).status == :polling
+    assert took_ms < 5_000
+  end
+
   test "the step before a poll is not run again when the workflow comes back" do
     {:ok, workflow} = Magma.start(Workflows.Polling, %{order_id: "ord_1"})
 
