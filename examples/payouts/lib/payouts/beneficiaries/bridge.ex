@@ -1,6 +1,6 @@
 defmodule Payouts.Beneficiaries.Bridge do
   @moduledoc """
-  Registering a Pakistani bank account as a Bridge recipient.
+  Registering a customer's bank account as a Bridge recipient.
 
   Three checkpoints: read the account the customer gave us, tell Bridge about it, then store the
   reference Bridge gave back. The middle one declares an `undo`, so a registration that fails
