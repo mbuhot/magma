@@ -47,3 +47,139 @@ jobs:
       - run: mix compile --warnings-as-errors
 
       - run: mix test
+
+  examples:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        example: [payouts, agency, helpdesk]
+
+    defaults:
+      run:
+        working-directory: examples/${{ matrix.example }}
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            examples/${{ matrix.example }}/deps
+            examples/${{ matrix.example }}/_build
+          key: ${{ runner.os }}-mix-${{ matrix.example }}-${{ hashFiles(format('examples/{0}/mix.lock', matrix.example)) }}
+          restore-keys: ${{ runner.os }}-mix-${{ matrix.example }}-
+
+      - run: mix deps.get
+
+      - run: mix compile --warnings-as-errors
+
+      - run: mix test
+
+  agency-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      MIX_ENV: dev
+      PORT: 4003
+
+    defaults:
+      run:
+        working-directory: examples/agency
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: examples/agency/e2e/package-lock.json
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            examples/agency/deps
+            examples/agency/_build
+          key: ${{ runner.os }}-mix-agency-e2e-${{ hashFiles('examples/agency/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-agency-e2e-
+
+      - run: mix deps.get
+
+      - run: mix ecto.create --quiet
+
+      - run: mix ecto.migrate --quiet
+
+      - run: npm ci
+        working-directory: examples/agency/e2e
+
+      - run: npx playwright install --with-deps chromium
+        working-directory: examples/agency/e2e
+
+      # The specs drive the app through a browser, so this is the real server on a real port,
+      # not the sandboxed endpoint the unit tests hold.
+      - name: Start the agency server
+        run: mix run --no-halt > /tmp/agency-server.log 2>&1 &
+
+      - name: Wait for the server
+        run: |
+          for _ in $(seq 60); do
+            curl -sf http://localhost:4003/ > /dev/null && exit 0
+            sleep 2
+          done
+          echo "the agency server never came up"
+          cat /tmp/agency-server.log
+          exit 1
+
+      - run: npx playwright test
+        working-directory: examples/agency/e2e
+
+      - if: failure()
+        run: cat /tmp/agency-server.log
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: examples/agency/e2e/playwright-report
+          retention-days: 7

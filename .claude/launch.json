@@ -9,6 +9,24 @@
         "cd examples/payouts && mix ecto.create --quiet && mix ecto.migrate --quiet && exec mix run --no-halt"
       ],
       "port": 4000
+    },
+    {
+      "name": "helpdesk-console",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd examples/helpdesk && PORT=4001 mix ecto.create --quiet && PORT=4001 mix ecto.migrate --quiet && exec env PORT=4001 mix run --no-halt"
+      ],
+      "port": 4001
+    },
+    {
+      "name": "agency-console",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd examples/agency && PORT=4003 mix ecto.create --quiet && PORT=4003 mix ecto.migrate --quiet && exec env PORT=4003 mix run --no-halt"
+      ],
+      "port": 4003
     }
   ]
 }
